@@ -3,20 +3,21 @@
 /**
  * Bot Initialization Script
  *
- * Scans the /brains folder for available brain files and creates
- * bot instances in the database for the current user.
- * Generates bots.json from the database records.
+ * Creates a single agent instance for the user during install.
+ * Uses the default "claude" agent profile - a vanilla Claude with
+ * security wrapper, no personality steering.
+ *
+ * Generates bots.json from the agent record.
  */
 
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const BRAINS_DIR = path.join(__dirname, '..', 'brains');
+const supabase = require('../lib/supabase-client');
+
 const BOTS_JSON_PATH = path.join(__dirname, '..', 'bots.json');
-const COORDINATION_URL = process.env.COORDINATION_URL?.replace('/api/servers/register', '/api') || 'https://labcart.io/api';
 const USER_ID = process.env.USER_ID;
-const SERVER_ID = process.env.SERVER_ID;
 
 if (!USER_ID) {
   console.error('❌ USER_ID not found in .env');
@@ -24,167 +25,154 @@ if (!USER_ID) {
   process.exit(1);
 }
 
+// Default agent slug to provision during install
+// This is a vanilla Claude with security wrapper, no personality steering
+const DEFAULT_AGENT_SLUG = 'claude';
+
 /**
- * Scan brains directory and return list of brain files
+ * Fetch the default agent from marketplace_agents table
+ * Only provisions the default agent, not all marketplace agents
  */
-function scanBrainFiles() {
-  if (!fs.existsSync(BRAINS_DIR)) {
-    console.error(`❌ Brains directory not found: ${BRAINS_DIR}`);
-    process.exit(1);
+async function getDefaultAgent() {
+  const { data, error } = await supabase
+    .from('marketplace_agents')
+    .select('*')
+    .eq('slug', DEFAULT_AGENT_SLUG)
+    .eq('is_active', true)
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to fetch default agent (${DEFAULT_AGENT_SLUG}): ${error.message}`);
   }
 
-  const files = fs.readdirSync(BRAINS_DIR)
-    .filter(file => file.endsWith('.js') && !file.startsWith('_'))
-    .map(file => file.replace('.js', ''));
-
-  return files;
+  return data;
 }
 
 /**
- * Load a brain file and extract metadata
+ * Fetch user's existing agent instances from my_agents table
  */
-function loadBrainMetadata(brainName) {
-  const brainPath = path.join(BRAINS_DIR, `${brainName}.js`);
+async function getMyAgents() {
+  const { data, error } = await supabase
+    .from('my_agents')
+    .select('*')
+    .eq('user_id', USER_ID);
 
-  try {
-    const brain = require(brainPath);
-
-    return {
-      brainFile: brainName,
-      name: brain.name || brainName,
-      description: brain.description || '',
-      systemPrompt: {
-        prompt: brain.systemPrompt || '',
-        private: brain.private !== undefined ? brain.private : true,
-        version: brain.version || '1.0',
-        security: brain.security !== undefined ? brain.security : 'default'
-      },
-      version: brain.version || '1.0'
-    };
-  } catch (err) {
-    console.error(`⚠️  Failed to load brain ${brainName}:`, err.message);
-    return null;
+  if (error) {
+    throw new Error(`Failed to fetch user agents: ${error.message}`);
   }
+
+  return data || [];
 }
 
 /**
- * Create a bot in the database
+ * Create an agent instance for the user in my_agents table
  */
-async function createBot(metadata) {
-  const botData = {
-    userId: USER_ID,
-    name: metadata.name,
-    description: metadata.description,
-    systemPrompt: metadata.systemPrompt,
-    serverId: SERVER_ID,
-    workspace: process.cwd(),
-    webOnly: true,
-    active: true
+async function createAgentInstance(agent) {
+  const instanceData = {
+    user_id: USER_ID,
+    agent_id: agent.id,
+    instance_name: agent.name,
+    instance_slug: agent.slug,
+    config_overrides: {},
+    agent_type: agent.agent_type || 'personality',
+    capabilities: agent.capabilities || []
   };
 
-  const response = await fetch(`${COORDINATION_URL}/bots`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(botData)
-  });
+  const { data, error } = await supabase
+    .from('my_agents')
+    .insert(instanceData)
+    .select()
+    .single();
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to create bot: ${error}`);
+  if (error) {
+    // Check if it's a duplicate key error
+    if (error.code === '23505') {
+      console.log(`   ⏭️  Skipped ${agent.name} (already exists)`);
+      return null;
+    }
+    throw new Error(`Failed to create agent instance: ${error.message}`);
   }
 
-  const result = await response.json();
-  return result.bot;
+  return data;
 }
 
 /**
- * Check if bots already exist for this user
- */
-async function getBots() {
-  const url = `${COORDINATION_URL}/bots?userId=${USER_ID}`;
-  console.log(`   Fetching from: ${url}`);
-
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to fetch existing bots (${response.status}): ${error}`);
-  }
-
-  const result = await response.json();
-  return result.bots || [];
-}
-
-/**
- * Generate bots.json from bot records
+ * Generate bots.json from agent records
  *
- * NOTE: This is ONLY needed for Telegram bot mode (not Web UI).
- * For Web UI, bots are fetched directly from Supabase on server startup.
- * This function is kept for backwards compatibility but may be removed.
+ * Maps marketplace agent format to the legacy bots.json format
+ * for backward compatibility with the bot manager.
  */
-function generateBotsJson(bots) {
-  const botsConfig = bots.map(bot => ({
-    id: bot.id,
-    brain: bot.id, // Use bot UUID - BrainLoader will load from database
-    workspace: bot.workspace || process.cwd(),
-    webOnly: bot.web_only,
-    active: bot.active
-  }));
+function generateBotsJson(agents, instances) {
+  // Create a map of instance_slug -> instance for quick lookup
+  const instanceMap = new Map(instances.map(i => [i.instance_slug, i]));
+
+  const botsConfig = agents
+    .filter(agent => instanceMap.has(agent.slug))
+    .map(agent => {
+      const instance = instanceMap.get(agent.slug);
+      const brainConfig = agent.brain_config || {};
+
+      return {
+        id: agent.slug,
+        name: agent.name,
+        systemPrompt: brainConfig.systemPrompt || '',
+        workspace: process.cwd(),
+        webOnly: true,
+        active: true,
+        // Include marketplace agent metadata
+        agentId: agent.id,
+        instanceId: instance.id,
+        capabilities: agent.capabilities || [],
+        agentType: agent.agent_type || 'personality'
+      };
+    });
 
   fs.writeFileSync(BOTS_JSON_PATH, JSON.stringify(botsConfig, null, 2));
   console.log(`✅ Generated bots.json with ${botsConfig.length} bots`);
-  console.log(`ℹ️  Note: Web UI fetches bots from Supabase. This file is for Telegram mode only.`);
 }
 
 /**
  * Main initialization
+ * Creates only ONE agent instance (the default Claude agent)
  */
 async function init() {
-  console.log('🚀 Initializing bots for user:', USER_ID);
+  console.log('🚀 Initializing bot for user:', USER_ID);
   console.log('');
 
-  // 1. Scan brain files
-  console.log('📂 Scanning brain files...');
-  const brainFiles = scanBrainFiles();
-  console.log(`   Found ${brainFiles.length} brain files`);
+  // 1. Fetch the default agent
+  console.log('📂 Fetching default agent...');
+  const defaultAgent = await getDefaultAgent();
+  console.log(`   Found: ${defaultAgent.name} (${defaultAgent.slug})`);
   console.log('');
 
-  // 2. Check existing bots in database
-  console.log('🔍 Checking existing bots in database...');
-  const existingBots = await getBots();
-  const existingBotNames = new Set(existingBots.map(b => b.name));
-  console.log(`   Found ${existingBots.length} existing bots`);
+  // 2. Check if instance already exists
+  console.log('🔍 Checking existing agent instances...');
+  const existingInstances = await getMyAgents();
+  const existingSlugs = new Set(existingInstances.map(i => i.instance_slug));
+  console.log(`   Found ${existingInstances.length} existing instances`);
   console.log('');
 
-  // 3. Create bots for any brain files that don't exist yet
-  console.log('📦 Creating bot instances...');
+  // 3. Create instance for default agent if it doesn't exist
+  console.log('📦 Creating agent instance...');
   let created = 0;
   let skipped = 0;
+  let instances = [...existingInstances];
 
-  for (const brainFile of brainFiles) {
-    const metadata = loadBrainMetadata(brainFile);
-
-    if (!metadata) {
-      console.log(`   ⚠️  Skipped ${brainFile} (failed to load)`);
-      skipped++;
-      continue;
-    }
-
-    if (existingBotNames.has(metadata.name)) {
-      console.log(`   ⏭️  Skipped ${metadata.name} (already exists)`);
-      skipped++;
-      continue;
-    }
-
+  if (existingSlugs.has(defaultAgent.slug)) {
+    console.log(`   ⏭️  Skipped ${defaultAgent.name} (already exists)`);
+    skipped++;
+  } else {
     try {
-      const bot = await createBot(metadata);
-      console.log(`   ✅ Created ${metadata.name} (${bot.id})`);
-      existingBots.push(bot);
-      created++;
+      const instance = await createAgentInstance(defaultAgent);
+      if (instance) {
+        console.log(`   ✅ Created ${defaultAgent.name} (${defaultAgent.slug})`);
+        instances.push(instance);
+        created++;
+      } else {
+        skipped++;
+      }
     } catch (err) {
-      console.error(`   ❌ Failed to create ${metadata.name}:`, err.message);
+      console.error(`   ❌ Failed to create ${defaultAgent.name}:`, err.message);
     }
   }
 
@@ -192,12 +180,12 @@ async function init() {
   console.log(`📊 Summary:`);
   console.log(`   Created: ${created}`);
   console.log(`   Skipped: ${skipped}`);
-  console.log(`   Total: ${existingBots.length}`);
+  console.log(`   Total instances: ${instances.length}`);
   console.log('');
 
-  // 4. Generate bots.json
+  // 4. Generate bots.json with just the default agent
   console.log('📝 Generating bots.json...');
-  generateBotsJson(existingBots);
+  generateBotsJson([defaultAgent], instances);
   console.log('');
 
   console.log('✨ Initialization complete!');

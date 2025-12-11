@@ -1,0 +1,23 @@
+[
+  {
+    "id": "853da329-967c-4b67-b2fc-a8eaa4f5b656",
+    "brain": "853da329-967c-4b67-b2fc-a8eaa4f5b656",
+    "workspace": "/Users/macbook/.labcart/claude-bot",
+    "webOnly": true,
+    "active": true
+  },
+  {
+    "id": "58ffd3e3-7b13-46ac-93e7-59062ed05fd6",
+    "brain": "58ffd3e3-7b13-46ac-93e7-59062ed05fd6",
+    "workspace": "/Users/macbook/.labcart/claude-bot",
+    "webOnly": true,
+    "active": true
+  },
+  {
+    "id": "5b31323f-7126-4f8e-99ea-a7fb7089bf58",
+    "brain": "5b31323f-7126-4f8e-99ea-a7fb7089bf58",
+    "workspace": "/Users/macbook/.labcart/claude-bot",
+    "webOnly": true,
+    "active": true
+  }
+]

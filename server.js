@@ -1623,6 +1623,329 @@ app.post('/resolve-workspace', async (req, res) => {
   }
 });
 
+// Discover workspaces by reading Claude CLI session files (cwd field)
+app.get('/discover-workspaces', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const home = process.env.HOME || process.env.USERPROFILE;
+
+    console.log('🔍 Discovering workspaces via Claude CLI session files...');
+
+    // Claude CLI stores sessions at ~/.claude/projects/<workspace-path-with-dashes>/
+    const claudeProjectsDir = path.join(home, '.claude', 'projects');
+
+    if (!fs.existsSync(claudeProjectsDir)) {
+      console.log('⚠️  No Claude projects directory found');
+      return res.json({ workspaces: [] });
+    }
+
+    const discoveredWorkspaces = [];
+    const seenPaths = new Set();
+    const entries = fs.readdirSync(claudeProjectsDir, { withFileTypes: true });
+
+    // Filter out system/temp directories we don't want to show
+    const systemPaths = ['/opt', '/private/tmp', '/tmp', '/var', '/usr', '/System'];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      try {
+        const projectDir = path.join(claudeProjectsDir, entry.name);
+
+        // Get the actual workspace path by reading session files
+        let workspacePath = null;
+        let lastUsed = null;
+
+        // Find a .jsonl file to read
+        const sessionFiles = fs.readdirSync(projectDir)
+          .filter(f => f.endsWith('.jsonl'))
+          .map(f => path.join(projectDir, f));
+
+        // Read first non-empty session file to get cwd
+        for (const sessionFile of sessionFiles) {
+          try {
+            const stat = fs.statSync(sessionFile);
+            if (stat.size === 0) continue;
+
+            const content = fs.readFileSync(sessionFile, 'utf-8');
+            const firstLine = content.trim().split('\n')[0];
+            if (!firstLine) continue;
+
+            const msg = JSON.parse(firstLine);
+            if (msg.cwd) {
+              workspacePath = msg.cwd;
+              lastUsed = new Date(msg.timestamp);
+              break;
+            }
+          } catch (err) {
+            continue;
+          }
+        }
+
+        // Fallback: extract path from directory name if cwd not found
+        if (!workspacePath) {
+          const dashedName = entry.name;
+          if (dashedName.startsWith('-')) {
+            workspacePath = '/' + dashedName.substring(1).replace(/-/g, '/');
+          } else {
+            continue;
+          }
+        }
+
+        // Skip if we've already seen this path
+        if (seenPaths.has(workspacePath)) continue;
+        seenPaths.add(workspacePath);
+
+        // Skip system/temp directories
+        const isSystemPath = systemPaths.some(sysPath => workspacePath.startsWith(sysPath));
+        if (isSystemPath) {
+          console.log(`   Skipping system path: ${workspacePath}`);
+          continue;
+        }
+
+        // Check if workspace directory actually exists
+        if (!fs.existsSync(workspacePath)) {
+          console.log(`   Skipping non-existent path: ${workspacePath}`);
+          continue;
+        }
+
+        // Use project directory mtime if we don't have a session timestamp
+        if (!lastUsed) {
+          const stats = fs.statSync(projectDir);
+          lastUsed = stats.mtime;
+        }
+
+        // Get workspace info
+        const name = path.basename(workspacePath);
+        const isGitRepo = fs.existsSync(path.join(workspacePath, '.git'));
+
+        discoveredWorkspaces.push({
+          name,
+          path: workspacePath,
+          isGitRepo,
+          lastUsed,
+          source: 'claude-session',
+        });
+      } catch (err) {
+        console.error(`Error processing ${entry.name}:`, err.message);
+      }
+    }
+
+    // Sort by most recently used
+    discoveredWorkspaces.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed));
+
+    console.log(`✅ Discovered ${discoveredWorkspaces.length} workspaces from Claude CLI sessions`);
+
+    res.json({ workspaces: discoveredWorkspaces });
+  } catch (error) {
+    console.error('Error discovering workspaces:', error);
+    res.status(500).json({ error: 'Failed to discover workspaces', message: error.message });
+  }
+});
+
+// List available workspaces in ~/labcart-projects/
+app.get('/list-workspaces', async (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const home = process.env.HOME || process.env.USERPROFILE;
+    const workspacesDir = path.join(home, 'labcart-projects');
+
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(workspacesDir)) {
+      fs.mkdirSync(workspacesDir, { recursive: true });
+    }
+
+    // Read directories
+    const entries = fs.readdirSync(workspacesDir, { withFileTypes: true });
+    const workspaces = entries
+      .filter(entry => entry.isDirectory())
+      .map(entry => {
+        const workspacePath = path.join(workspacesDir, entry.name);
+        const stats = fs.statSync(workspacePath);
+
+        // Check if it's a git repo
+        const isGitRepo = fs.existsSync(path.join(workspacePath, '.git'));
+
+        return {
+          name: entry.name,
+          path: workspacePath,
+          isGitRepo,
+          lastModified: stats.mtime,
+        };
+      })
+      .sort((a, b) => b.lastModified - a.lastModified);
+
+    res.json({ workspaces });
+  } catch (error) {
+    console.error('Error listing workspaces:', error);
+    res.status(500).json({ error: 'Failed to list workspaces', message: error.message });
+  }
+});
+
+// Clone GitHub repository to ~/labcart-projects/
+app.post('/clone-repo', async (req, res) => {
+  try {
+    const { repoUrl } = req.body;
+
+    if (!repoUrl) {
+      return res.status(400).json({ error: 'Repository URL is required' });
+    }
+
+    // Validate GitHub URL format
+    const githubPattern = /^https?:\/\/(www\.)?github\.com\/[\w-]+\/[\w.-]+/;
+    if (!githubPattern.test(repoUrl)) {
+      return res.status(400).json({
+        error: 'Invalid GitHub URL',
+        message: 'Please provide a valid GitHub repository URL'
+      });
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const { execSync } = require('child_process');
+    const home = process.env.HOME || process.env.USERPROFILE;
+    const workspacesDir = path.join(home, 'labcart-projects');
+
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(workspacesDir)) {
+      fs.mkdirSync(workspacesDir, { recursive: true });
+    }
+
+    // Extract repo name from URL
+    const repoName = repoUrl.split('/').pop().replace(/\.git$/, '');
+    const targetPath = path.join(workspacesDir, repoName);
+
+    // Check if directory already exists
+    if (fs.existsSync(targetPath)) {
+      return res.status(409).json({
+        error: 'Workspace already exists',
+        message: `A workspace named "${repoName}" already exists`,
+        path: targetPath
+      });
+    }
+
+    console.log(`📦 Cloning ${repoUrl} to ${targetPath}...`);
+
+    try {
+      execSync(`git clone "${repoUrl}" "${targetPath}"`, {
+        stdio: 'pipe',
+        timeout: 60000
+      });
+
+      console.log(`✅ Successfully cloned ${repoName}`);
+
+      res.json({
+        success: true,
+        name: repoName,
+        path: targetPath,
+        message: `Successfully cloned ${repoName}`
+      });
+    } catch (cloneError) {
+      console.error(`❌ Git clone failed:`, cloneError.message);
+
+      if (fs.existsSync(targetPath)) {
+        fs.rmSync(targetPath, { recursive: true, force: true });
+      }
+
+      return res.status(500).json({
+        error: 'Clone failed',
+        message: cloneError.message
+      });
+    }
+
+  } catch (error) {
+    console.error('Error cloning repository:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+// Workspace identification endpoint - creates/reads .labcart/workspace.json
+app.post('/workspace/identify', async (req, res) => {
+  try {
+    const { workspacePath } = req.body;
+
+    if (!workspacePath || typeof workspacePath !== 'string') {
+      return res.status(400).json({ error: 'Workspace path is required' });
+    }
+
+    const fs = require('fs');
+    const path = require('path');
+    const { randomUUID } = require('crypto');
+
+    // Verify the workspace path exists
+    if (!fs.existsSync(workspacePath)) {
+      return res.status(404).json({ error: 'Workspace path does not exist' });
+    }
+
+    const stats = fs.statSync(workspacePath);
+    if (!stats.isDirectory()) {
+      return res.status(400).json({ error: 'Workspace path must be a directory' });
+    }
+
+    const labcartDir = path.join(workspacePath, '.labcart');
+    const workspaceFile = path.join(labcartDir, 'workspace.json');
+
+    let workspaceId;
+    let isNew = false;
+
+    if (fs.existsSync(workspaceFile)) {
+      try {
+        const fileContent = fs.readFileSync(workspaceFile, 'utf8');
+        const data = JSON.parse(fileContent);
+
+        if (data.workspaceId && typeof data.workspaceId === 'string') {
+          workspaceId = data.workspaceId;
+          console.log(`🔵 Workspace identified: ${workspaceId} at ${workspacePath}`);
+        } else {
+          throw new Error('Invalid workspace.json format');
+        }
+      } catch (error) {
+        console.error('Error reading workspace.json:', error);
+        workspaceId = randomUUID();
+        isNew = true;
+      }
+    } else {
+      workspaceId = randomUUID();
+      isNew = true;
+      console.log(`🟢 New workspace created: ${workspaceId} at ${workspacePath}`);
+    }
+
+    if (isNew) {
+      if (!fs.existsSync(labcartDir)) {
+        fs.mkdirSync(labcartDir, { recursive: true });
+      }
+
+      const workspaceData = {
+        workspaceId,
+        createdAt: new Date().toISOString(),
+        path: workspacePath,
+      };
+
+      fs.writeFileSync(workspaceFile, JSON.stringify(workspaceData, null, 2), 'utf8');
+
+      const gitignorePath = path.join(labcartDir, '.gitignore');
+      if (!fs.existsSync(gitignorePath)) {
+        fs.writeFileSync(gitignorePath, '# LabCart workspace metadata\n*\n', 'utf8');
+      }
+
+      console.log(`✓ Created .labcart/workspace.json`);
+    }
+
+    res.json({
+      success: true,
+      workspaceId,
+      workspacePath,
+      isNew,
+    });
+
+  } catch (error) {
+    console.error('Error identifying workspace:', error);
+    res.status(500).json({ error: 'Failed to identify workspace', message: error.message });
+  }
+});
+
 // File system listing endpoint
 app.get('/files', (req, res) => {
   try {

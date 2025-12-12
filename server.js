@@ -890,7 +890,16 @@ io.on('connection', (socket) => {
         claudeCmd: manager.claudeCmd,
         // IMPORTANT: Always use process.cwd() for physical spawning (all instances share same directory)
         // workspacePath is only for logical tracking/organization
-        workspacePath: process.cwd()
+        workspacePath: process.cwd(),
+        // Stream chunks to frontend as they arrive
+        onStream: (chunk) => {
+          socket.emit('bot-chunk', {
+            botId,
+            userId,
+            chunk,
+            timestamp: Date.now()
+          });
+        }
       });
 
       // Get Claude's CLI session ID from the response

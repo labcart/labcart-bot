@@ -18,8 +18,12 @@ const TerminalManager = require('./lib/terminal-manager');
 const { recoverFromRestart } = require('./lib/restart-recovery');
 const WorkflowHandler = require('./lib/workflow-handler');
 const messageStore = require('./lib/message-store');
+const TunnelManager = require('./lib/tunnel-manager');
 const fs = require('fs');
 const path = require('path');
+
+// Global tunnel URL - dynamically detected, not from .env
+let currentTunnelUrl = null;
 
 // Clear Node.js require cache for all brain files to ensure fresh loads
 const brainsDir = path.join(__dirname, 'brains');
@@ -1233,6 +1237,37 @@ let proxyReconnectAttempts = 0;
 let proxyReconnectTimer = null;
 let isConnectingToProxy = false;
 let keepaliveInterval = null;
+let currentProxySocket = null; // Store reference for forced reconnection
+
+/**
+ * Force reconnect to proxy with a new URL (called when tunnel URL changes)
+ */
+function forceReconnectProxy() {
+  console.log('🔄 Forcing proxy reconnection with new tunnel URL...');
+
+  // Clear any pending reconnect
+  if (proxyReconnectTimer) {
+    clearTimeout(proxyReconnectTimer);
+    proxyReconnectTimer = null;
+  }
+
+  // Close existing connection
+  if (currentProxySocket) {
+    try {
+      currentProxySocket.close(1000, 'Reconnecting with new URL');
+    } catch (err) {
+      // Ignore close errors
+    }
+    currentProxySocket = null;
+  }
+
+  // Reset state
+  isConnectingToProxy = false;
+  proxyReconnectAttempts = 0;
+
+  // Reconnect
+  connectToProxy();
+}
 
 async function connectToProxy() {
   const userId = process.env.USER_ID;
@@ -1255,17 +1290,23 @@ async function connectToProxy() {
   try {
     const WebSocket = require('ws');
 
-    // Use SERVER_URL from .env (stable named tunnel URL)
-    const serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
+    // Use dynamically detected tunnel URL (or fallback to .env for backward compatibility)
+    const serverUrl = currentTunnelUrl || process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
 
     console.log(`🔌 Connecting to IDE WebSocket proxy...`);
     console.log(`   Proxy URL: ${proxyUrl}`);
     console.log(`   User ID: ${userId}`);
-    console.log(`   Server URL: ${serverUrl}`);
+    console.log(`   Server URL: ${serverUrl}${currentTunnelUrl ? ' (dynamic)' : ' (static from .env)'}`);
+
+    // Warn if using stale .env URL
+    if (!currentTunnelUrl && process.env.SERVER_URL) {
+      console.log(`   ⚠️  Using SERVER_URL from .env - tunnel manager not active`);
+    }
 
     // Connect as bot-server to proxy using raw WebSocket
     const wsUrl = `${proxyUrl}?userId=${encodeURIComponent(userId)}&type=bot-server&serverUrl=${encodeURIComponent(serverUrl)}`;
     const proxySocket = new WebSocket(wsUrl);
+    currentProxySocket = proxySocket; // Store reference for forced reconnection
 
     proxySocket.on('open', () => {
       console.log(`✅ IDE proxy bridge established`);
@@ -1510,10 +1551,14 @@ async function connectToProxy() {
 
 /**
  * Register this bot server with the coordination API
+ * @param {string} urlOverride - Optional URL override (for dynamic URL updates)
  */
-async function registerServer() {
+let heartbeatInterval = null; // Store heartbeat interval for cleanup
+
+async function registerServer(urlOverride) {
   const serverId = process.env.SERVER_ID || `server-${require('os').hostname()}`;
-  const serverUrl = process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
+  // Priority: urlOverride > currentTunnelUrl > .env > localhost fallback
+  const serverUrl = urlOverride || currentTunnelUrl || process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
   const userId = process.env.USER_ID;
   const coordinationUrl = process.env.COORDINATION_URL || 'http://localhost:3000/api/servers/register';
 
@@ -1526,7 +1571,7 @@ async function registerServer() {
   try {
     console.log(`📡 Registering server with coordination API...`);
     console.log(`   Server ID: ${serverId}`);
-    console.log(`   Server URL: ${serverUrl}`);
+    console.log(`   Server URL: ${serverUrl}${urlOverride ? ' (updated)' : ''}`);
     console.log(`   User ID: ${userId}`);
 
     const response = await fetch(coordinationUrl, {
@@ -1550,16 +1595,23 @@ async function registerServer() {
     const data = await response.json();
     console.log(`✅ Server registered successfully`);
 
-    // Send heartbeat every 30 seconds
-    setInterval(async () => {
+    // Clear existing heartbeat interval if re-registering
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+    }
+
+    // Send heartbeat every 30 seconds with CURRENT tunnel URL
+    heartbeatInterval = setInterval(async () => {
       try {
+        // Always use the latest tunnel URL for heartbeats
+        const heartbeatUrl = currentTunnelUrl || process.env.SERVER_URL || `http://localhost:${HTTP_PORT}`;
         await fetch(coordinationUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             serverId,
             userId,
-            serverUrl,
+            serverUrl: heartbeatUrl,
             serverName: require('os').hostname(),
             status: 'online',
           }),
@@ -2369,11 +2421,62 @@ httpServer.listen(HTTP_PORT, async () => {
     console.error('Failed to recover interrupted workflows:', err.message);
   }
 
-  // Register with coordination API
-  await registerServer();
+  // Initialize tunnel manager if USER_ID is configured (VPS deployment)
+  // Skip tunnel management for local development
+  const shouldManageTunnel = process.env.USER_ID && !process.env.SKIP_TUNNEL_MANAGER;
 
-  // Connect to WebSocket proxy for remote IDE connections
-  await connectToProxy();
+  if (shouldManageTunnel) {
+    console.log('\n🚇 Initializing Cloudflare Tunnel Manager...');
+    const tunnelManager = new TunnelManager({ port: HTTP_PORT });
+
+    // Handle URL changes
+    tunnelManager.on('url-changed', async (newUrl, oldUrl) => {
+      console.log(`\n🔄 Tunnel URL changed: ${oldUrl || '(none)'} → ${newUrl}`);
+      currentTunnelUrl = newUrl;
+
+      // Re-register with new URL
+      await registerServer(newUrl);
+
+      // Force reconnect proxy with new URL
+      forceReconnectProxy();
+    });
+
+    tunnelManager.on('error', (error) => {
+      console.error('🚇 Tunnel error:', error.message);
+    });
+
+    tunnelManager.on('max-restarts-reached', () => {
+      console.error('🚇 Tunnel failed to start after max attempts - falling back to .env URL');
+      // Fall back to .env URL if tunnel manager fails
+      registerServer();
+      connectToProxy();
+    });
+
+    // Start the tunnel
+    tunnelManager.start();
+
+    // Wait for initial URL detection before registering
+    try {
+      const url = await tunnelManager.waitForUrl(30000);
+      console.log(`✅ Tunnel ready: ${url}\n`);
+    } catch (err) {
+      console.error('⚠️  Tunnel URL not detected in time, falling back to .env');
+      // Proceed with registration anyway (will use .env fallback)
+      await registerServer();
+      await connectToProxy();
+    }
+  } else {
+    // Local development or SKIP_TUNNEL_MANAGER=true
+    if (process.env.USER_ID) {
+      console.log('\n⏭️  Tunnel manager skipped (SKIP_TUNNEL_MANAGER=true)');
+    }
+
+    // Register with coordination API using .env URL
+    await registerServer();
+
+    // Connect to WebSocket proxy for remote IDE connections
+    await connectToProxy();
+  }
 });
 
 // Graceful shutdown handlers

@@ -9,7 +9,7 @@ import { formatSessionMarkdown, formatSessionJSON } from '../core/index.js';
  */
 export async function handleListSessions(api, args) {
     const sessions = await api.listSessions({
-        limit: args.limit || 20,
+        limit: args.limit,  // No default - load all if not specified
         projectPath: args.project,
         tag: args.tag,
         taggedOnly: args.taggedOnly || false,
@@ -23,7 +23,8 @@ export async function handleListSessions(api, args) {
         const msgs = s.message_count || 0;
         const tags = s.tags && s.tags.length > 0 ? s.tags.join(', ') : 'no tags';
         const date = s.created_at ? formatDate(s.created_at) : 'unknown';
-        return `${i + 1}. ${nickname} | ${project} | ${msgs} msgs | ${tags} | ${date}`;
+        const preview = s.first_message_preview || '';
+        return `${i + 1}. ${nickname} | ${project} | ${msgs} msgs | ${tags} | ${date} | ${preview}`;
     });
     const result = sessions.length > 0
         ? `Found ${sessions.length} session(s):\n\n${lines.join('\n')}`

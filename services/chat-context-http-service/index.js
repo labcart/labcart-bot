@@ -181,10 +181,16 @@ USE this after search_sessions finds a session, or when user provides a session 
       name: 'nickname_current_session',
       description: `Set a nickname for the CURRENT chat session you are in right now.
 
-Use when user wants to name THIS session:
-- "Nickname this chat 'auth-implementation'"
-- "Name the current session 'bug-fix-cors'"
-- "Call this conversation 'database-design'"
+IMPORTANT BEHAVIOR:
+- If user provides a specific name (e.g., "nickname this 'auth-work'"), use that exact name
+- If user just says "nickname this session" or "name this chat" WITHOUT a specific name, YOU MUST generate a concise, descriptive nickname based on the main topic/goal of this conversation (e.g., "telegram-session-mgmt", "api-refactor", "bug-fix-login")
+- Keep auto-generated nicknames short (2-4 words), lowercase, hyphenated
+- If truly unclear what the session is about, ask the user for a name
+
+Examples:
+- "Nickname this 'my-project'" → use "my-project"
+- "Name this session" → auto-generate based on conversation content
+- "Nickname session auth stuff" → use "auth-stuff"
 
 The nickname will be applied when this session is synced to the database.`,
       inputSchema: {
@@ -192,7 +198,7 @@ The nickname will be applied when this session is synced to the database.`,
         properties: {
           nickname: {
             type: 'string',
-            description: 'Nickname to assign to the current session',
+            description: 'Nickname to assign (user-provided or auto-generated based on conversation topic)',
           },
           project: {
             type: 'string',
@@ -467,7 +473,7 @@ app.post('/branch_session', async (req, res) => {
     const sourceContent = fs.readFileSync(sourceFile, 'utf8');
     const sourceLines = sourceContent.trim().split('\n').filter(line => line.trim());
 
-    // Find lines up to and including branchAfterMessageUuid
+    // Find lines up to and including the branch point
     let branchLines = [];
     let foundBranchPoint = false;
     for (const line of sourceLines) {

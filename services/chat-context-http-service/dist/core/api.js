@@ -112,9 +112,17 @@ export class CursorContext {
         if (!metadata && !idOrNickname.includes(':')) {
             metadata = this.metadataDB.getSessionMetadata(`cursor:${idOrNickname}`);
         }
+        // If not found, try adding claude: prefix
+        if (!metadata && !idOrNickname.includes(':')) {
+            metadata = this.metadataDB.getSessionMetadata(`claude:${idOrNickname}`);
+        }
         // If still not found and autoSync is enabled, try to fetch from Cursor DB
         if (!metadata && this.autoSync && !idOrNickname.includes(':')) {
             metadata = await this.syncCursorSession(idOrNickname);
+        }
+        // If still not found and autoSync is enabled, try to fetch from Claude DB
+        if (!metadata && this.autoSync && !idOrNickname.includes(':')) {
+            metadata = await this.syncClaudeSession(idOrNickname);
         }
         // If still not found, throw error
         if (!metadata) {

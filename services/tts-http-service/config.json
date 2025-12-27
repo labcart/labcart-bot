@@ -1,0 +1,26 @@
+{
+  "port": 3001,
+  "provider": "openai",
+  "output_format": "mp3",
+  "output_dir": "./audio-output",
+  "google": {
+    "voice": "en-US-Neural2-F",
+    "language_code": "en-US",
+    "speaking_rate": 1.0,
+    "pitch": 0.0,
+    "audio_encoding": "MP3"
+  },
+  "openai": {
+    "model": "tts-1",
+    "voice": "nova",
+    "speed": 1.0,
+    "response_format": "mp3"
+  },
+  "elevenlabs": {
+    "model": "eleven_multilingual_v2",
+    "voice": "EXAVITQu4vr4xnSDxMaL",
+    "stability": 0.5,
+    "similarity_boost": 0.75,
+    "output_dir": "./audio-output"
+  }
+}

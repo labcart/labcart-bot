@@ -1,0 +1,42 @@
+{
+  "name": "claude-bot-platform",
+  "version": "1.0.0",
+  "description": "Multi-bot Telegram platform powered by Claude Code CLI with personality brain files",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "restart": "./restart.sh",
+    "test": "node test-workflow.js",
+    "test:e2e": "node test-workflow-e2e.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "claude",
+    "ai",
+    "chatbot"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.940.0",
+    "@aws-sdk/s3-request-presigner": "^3.940.0",
+    "@supabase/supabase-js": "^2.78.0",
+    "better-sqlite3": "^12.4.1",
+    "diff": "^5.2.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "node-pty": "^1.0.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "socket.io": "^4.8.1",
+    "telegram": "^2.26.22",
+    "winston": "^3.18.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

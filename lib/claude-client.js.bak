@@ -1,0 +1,304 @@
+const { spawn } = require('child_process');
+const readline = require('readline');
+
+/**
+ * Send a message to Claude using the streaming JSON protocol
+ * Supports two modes:
+ * 1. Simple mode (no permissions): echo message | claude --print
+ * 2. Interactive mode (with permissions): JSON stdin/stdout with control protocol
+ */
+async function sendToClaudeSession(options) {
+  const {
+    message,
+    sessionId,
+    projectPath,
+    claudeCmd = 'claude',
+    onStream = null,
+    onPermissionRequest = null
+  } = options;
+
+  if (onPermissionRequest) {
+    // Use interactive JSON mode for permission handling
+    return sendWithPermissions(options);
+  } else {
+    // Use simple pipe mode (faster, no permission handling)
+    return sendSimple(options);
+  }
+}
+
+/**
+ * Simple mode: pipe message to Claude (no permission handling)
+ */
+async function sendSimple(options) {
+  const { message, sessionId, projectPath, claudeCmd, onStream } = options;
+
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--ide',
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--dangerously-skip-permissions'
+    ];
+
+    // Only add --resume if sessionId is a valid UUID
+    if (sessionId && sessionId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+      args.push('--resume', sessionId);
+    }
+
+    console.log(`🚀 Spawning (simple): ${claudeCmd} ${args.join(' ')}`);
+
+    const child = spawn(claudeCmd, args, {
+      cwd: projectPath,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true
+    });
+
+    child.stdin.write(message + '\n');
+    child.stdin.end();
+
+    let fullResponse = '';
+    let sessionInfo = null;
+    let stderrOutput = '';
+    let resolved = false;
+
+    // Capture stderr for debugging
+    child.stderr.on('data', (data) => {
+      stderrOutput += data.toString();
+    });
+
+    const rl = readline.createInterface({
+      input: child.stdout,
+      crlfDelay: Infinity
+    });
+
+    rl.on('line', (line) => {
+      if (!line.trim()) return;
+
+      try {
+        const data = JSON.parse(line);
+
+        switch (data.type) {
+          case 'system':
+            sessionInfo = {
+              sessionId: data.session_id,
+              model: data.model,
+              tools: data.tools?.length || 0
+            };
+            console.log(`📋 Session initialized: ${data.model}`);
+            break;
+
+          case 'assistant':
+            if (data.message?.content) {
+              const textContent = data.message.content
+                .filter(c => c.type === 'text')
+                .map(c => c.text)
+                .join('\n');
+              
+              if (textContent) {
+                fullResponse += textContent;
+                if (onStream) {
+                  onStream(textContent);
+                }
+              }
+            }
+            break;
+
+          case 'result':
+            console.log(`✅ Completed in ${data.duration_ms}ms`);
+            resolved = true;
+            if (data.is_error) {
+              reject({ success: false, error: data.result || 'Unknown error' });
+            } else {
+              resolve({
+                success: true,
+                text: fullResponse || data.result,
+                metadata: { duration: data.duration_ms, sessionInfo }
+              });
+            }
+            break;
+        }
+      } catch (err) {
+        console.error(`⚠️  Failed to parse JSON:`, err.message);
+      }
+    });
+
+    child.on('error', (error) => {
+      reject({ success: false, error: `Failed to spawn: ${error.message}` });
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0 && code !== null) {
+        reject({ success: false, error: `Exited with code ${code}` });
+      }
+    });
+  });
+}
+
+/**
+ * Interactive mode: JSON stdin/stdout with permission protocol
+ */
+async function sendWithPermissions(options) {
+  const { message, sessionId, projectPath, claudeCmd, onStream, onPermissionRequest } = options;
+  
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--ide',
+      '--resume', sessionId,
+      '--input-format', 'stream-json',  // CRITICAL: Required for permission handling
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--permission-prompt-tool', 'stdio'
+    ];
+
+    console.log(`🚀 Spawning (interactive): ${claudeCmd} ${args.join(' ')}`);
+
+    const child = spawn(claudeCmd, args, {
+      cwd: projectPath,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      shell: true
+    });
+
+    let fullResponse = '';
+    let sessionInfo = null;
+
+    // Send messages as JSON in stream-json format
+    const sendJsonMessage = (msg) => {
+      const jsonMsg = { 
+        type: 'user', 
+        message: {
+          role: 'user',
+          content: msg
+        }
+      };
+      child.stdin.write(JSON.stringify(jsonMsg) + '\n');
+    };
+
+    // Send initial message
+    sendJsonMessage(message);
+
+    const rl = readline.createInterface({
+      input: child.stdout,
+      crlfDelay: Infinity
+    });
+
+    rl.on('line', async (line) => {
+      if (!line.trim()) return;
+
+      try {
+        const data = JSON.parse(line);
+
+        switch (data.type) {
+          case 'system':
+            sessionInfo = {
+              sessionId: data.session_id,
+              model: data.model,
+              tools: data.tools?.length || 0
+            };
+            console.log(`📋 Session initialized: ${data.model}`);
+            break;
+
+          case 'assistant':
+            if (data.message?.content) {
+              const textContent = data.message.content
+                .filter(c => c.type === 'text')
+                .map(c => c.text)
+                .join('\n');
+              
+              if (textContent) {
+                fullResponse += textContent;
+                if (onStream) {
+                  onStream(textContent);
+                }
+              }
+            }
+            break;
+
+          case 'control_request':
+            // Permission request from Claude
+            if (data.request?.subtype === 'can_use_tool') {
+              await handlePermissionRequest(child.stdin, data, onPermissionRequest);
+            }
+            break;
+
+          case 'result':
+            console.log(`✅ Completed in ${data.duration_ms}ms`);
+            child.stdin.end(); // Close stdin after completion
+            
+            if (data.is_error) {
+              reject({ success: false, error: data.result || 'Unknown error' });
+            } else {
+              resolve({
+                success: true,
+                text: fullResponse || data.result,
+                metadata: { duration: data.duration_ms, sessionInfo }
+              });
+            }
+            break;
+        }
+      } catch (err) {
+        console.error(`⚠️  Failed to parse JSON:`, err.message);
+      }
+    });
+
+    child.on('error', (error) => {
+      reject({ success: false, error: `Failed to spawn: ${error.message}` });
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0 && code !== null) {
+        reject({ success: false, error: `Exited with code ${code}` });
+      }
+    });
+  });
+}
+
+/**
+ * Handle permission request from Claude
+ */
+async function handlePermissionRequest(stdin, requestData, callback) {
+  const { request_id, request } = requestData;
+  const { tool_name, input } = request;
+
+  console.log(`🔐 Permission requested: ${tool_name}`);
+
+  let allow = false;
+  if (callback) {
+    try {
+      allow = await callback(tool_name, input);
+    } catch (err) {
+      console.error(`❌ Permission callback error: ${err.message}`);
+    }
+  }
+
+  // Send permission response using control_response protocol  
+  // Format for allow: behavior + updatedInput
+  // Format for deny: behavior + message (per chatcode implementation)
+  const responsePayload = allow 
+    ? {
+        behavior: "allow",
+        updatedInput: input  // Pass through the original input unchanged
+      }
+    : {
+        behavior: "deny",
+        message: "Permission denied by user"
+      };
+  
+  const response = {
+    type: 'control_response',
+    response: {
+      subtype: 'success',
+      request_id: request_id,
+      response: responsePayload
+    }
+  };
+
+  if (stdin && !stdin.destroyed) {
+    stdin.write(JSON.stringify(response) + '\n');
+    console.log(`${allow ? '✅' : '❌'} Permission ${allow ? 'granted' : 'denied'} for ${tool_name}`);
+  } else {
+    console.error(`⚠️  Cannot send permission response - stdin closed`);
+  }
+}
+
+module.exports = { sendToClaudeSession };
+

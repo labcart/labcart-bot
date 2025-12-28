@@ -1377,10 +1377,64 @@ async function connectToProxy() {
             console.log(`📨 Message from IDE for bot ${botId} (workspace: ${workspacePath}):`, userMessage);
 
             try {
-              const botInfo = manager.bots.get(botId);
+              let botInfo = manager.bots.get(botId);
+
               if (!botInfo) {
-                sendToProxy('error', { message: `Bot ${botId} not found` });
-                return;
+                // Bot not loaded yet - load on-demand from Supabase
+                // IDE now sends instance_slug (same as Market mode)
+                console.log(`🔄 Loading bot instance ${botId} on-demand from database (IDE mode)`);
+
+                try {
+                  const { createClient } = require('@supabase/supabase-js');
+                  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+                  const supabase = createClient(
+                    supabaseUrl,
+                    process.env.SUPABASE_SERVICE_ROLE_KEY
+                  );
+
+                  // IDE now sends instance_slug (same as Market mode)
+                  const { data: instance, error: instanceError } = await supabase
+                    .from('my_agents')
+                    .select('*, agent:marketplace_agents(*)')
+                    .eq('instance_slug', botId)
+                    .single();
+
+                  if (instanceError || !instance) {
+                    console.error(`❌ Bot instance ${botId} not found:`, instanceError);
+                    sendToProxy('error', { message: `Bot instance ${botId} not found` });
+                    return;
+                  }
+
+                  console.log(`✅ Found bot instance ${botId}, agent: ${instance.agent?.slug || instance.instance_slug}`);
+
+                  // Merge agent brain_config with instance config_overrides
+                  const mergedConfig = {
+                    ...(instance.agent?.brain_config || {}),
+                    ...instance.config_overrides
+                  };
+
+                  // Add bot to manager with merged config
+                  await manager.addBot({
+                    id: botId,
+                    brain: instance.agent?.slug || instance.instance_slug,
+                    brainConfig: mergedConfig,
+                    webOnly: true
+                  });
+
+                  botInfo = manager.bots.get(botId);
+
+                  if (!botInfo) {
+                    console.error(`❌ Bot instance ${botId} not found in manager after loading`);
+                    sendToProxy('error', { message: `Bot instance ${botId} not found` });
+                    return;
+                  }
+
+                  console.log(`✅ Bot instance ${botId} loaded successfully (IDE mode)`);
+                } catch (loadError) {
+                  console.error(`❌ Failed to load bot instance ${botId}:`, loadError.message);
+                  sendToProxy('error', { message: `Failed to load bot: ${loadError.message}` });
+                  return;
+                }
               }
 
               // Get or create session for this bot + user

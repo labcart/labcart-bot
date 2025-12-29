@@ -1373,7 +1373,7 @@ async function connectToProxy() {
         switch (eventType) {
           case 'chat:send':
           case 'send-message': {
-            const { botId, userId, message: userMessage, workspacePath } = data;
+            const { botId, userId, message: userMessage, workspacePath, sessionUuid: requestedSessionUuid } = data;
             console.log(`📨 Message from IDE for bot ${botId} (workspace: ${workspacePath}):`, userMessage);
 
             try {
@@ -1437,15 +1437,30 @@ async function connectToProxy() {
                 }
               }
 
-              // Get or create session for this bot + user
-              const currentUuid = manager.sessionManager.getCurrentUuid(botId, userId);
-              const isNewSession = !currentUuid;
+              // ========== SESSION MANAGEMENT (same as Market mode) ==========
+              let ourSessionId = requestedSessionUuid;
+              let isNewSession = false;
 
-              if (isNewSession) {
-                console.log(`🆕 [${botId}] New IDE session for user ${userId}`);
+              if (!ourSessionId || ourSessionId === 'new') {
+                ourSessionId = messageStore.generateSessionId();
+                isNewSession = true;
+                console.log(`🆕 [${botId}] New IDE session ${ourSessionId.substring(0, 8)}... for user ${userId}`);
               } else {
-                console.log(`📝 [${botId}] Resuming IDE session ${currentUuid.substring(0, 8)}... for user ${userId}`);
+                console.log(`📝 [${botId}] Resuming IDE session ${ourSessionId.substring(0, 8)}... for user ${userId}`);
               }
+
+              // Get CLI session ID for --resume (if existing session)
+              let cliSessionId = null;
+              if (!isNewSession) {
+                cliSessionId = await messageStore.getCliSessionId(ourSessionId);
+                if (cliSessionId) {
+                  console.log(`🔗 [${botId}] Found CLI session ${cliSessionId.substring(0, 8)}... for --resume`);
+                }
+              }
+
+              // ========== SAVE USER MESSAGE IMMEDIATELY ==========
+              await messageStore.saveUserMessage(ourSessionId, userId, botId, userMessage, cliSessionId);
+              console.log(`💾 [${botId}] Saved user message to DB BEFORE calling Claude`);
 
               // Build system prompt for new sessions
               let fullMessage;
@@ -1473,29 +1488,48 @@ async function connectToProxy() {
 
               const result = await sendToClaudeSession({
                 message: fullMessage,
-                sessionId: currentUuid,
+                sessionId: cliSessionId,  // Use CLI session ID for --resume
                 claudeCmd: manager.claudeCmd,
-                workspacePath: workspacePath || process.env.LABCART_WORKSPACE || process.cwd()
+                workspacePath: workspacePath || process.env.LABCART_WORKSPACE || process.cwd(),
+                // Stream chunks to frontend as they arrive
+                onStream: (chunk) => {
+                  sendToProxy('bot-chunk', {
+                    botId,
+                    userId,
+                    chunk,
+                    timestamp: Date.now()
+                  });
+                }
               });
 
-              // Save the session UUID
-              const sessionUuid = result.metadata?.sessionInfo?.sessionId;
-              if (sessionUuid) {
-                const workspace = workspacePath || process.env.LABCART_WORKSPACE || process.cwd();
-                manager.sessionManager.setCurrentUuid(botId, userId, sessionUuid, workspace);
-                console.log(`💾 [${botId}] Saved UUID ${sessionUuid.substring(0, 8)}... for IDE user ${userId} (workspace: ${workspace})`);
+              // Get Claude's CLI session ID from the response
+              const newCliSessionId = result.metadata?.sessionInfo?.sessionId;
+
+              // Link CLI session ID to our session (for future --resume)
+              if (newCliSessionId && isNewSession) {
+                await messageStore.linkCliSession(ourSessionId, newCliSessionId);
+                cliSessionId = newCliSessionId;
               }
 
-              // Update session manager
-              manager.sessionManager.incrementMessageCount(botId, userId);
-              manager.sessionManager.incrementMessageCount(botId, userId);
+              // Update legacy session manager (for backwards compatibility)
+              if (newCliSessionId) {
+                const logicalWorkspace = workspacePath || process.env.LABCART_WORKSPACE || process.cwd();
+                manager.sessionManager.setCurrentUuid(botId, userId, ourSessionId, logicalWorkspace);
+                manager.sessionManager.incrementMessageCount(botId, userId, ourSessionId);
+                manager.sessionManager.incrementMessageCount(botId, userId, ourSessionId);
+              }
 
               if (result.success && result.text) {
+                // Save assistant message to database
+                await messageStore.saveAssistantMessage(ourSessionId, userId, botId, result.text, cliSessionId);
+                console.log(`💾 [${botId}] Saved assistant message to DB`);
+
+                // Send response back to UI (include OUR sessionUuid so frontend can use it)
                 sendToProxy('bot-message', {
                   botId,
                   userId,
                   message: result.text,
-                  sessionUuid: sessionUuid || null,
+                  sessionUuid: ourSessionId,  // OUR session ID, not Claude's
                   hasAudio: false,
                   hasImages: false,
                   timestamp: Date.now()

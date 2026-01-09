@@ -1034,6 +1034,63 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Re-attach to existing terminal after reconnection
+  socket.on('terminal:reattach', (data) => {
+    const { terminalId, cwd, cols, rows, botId } = data;
+    console.log(`🔄 Re-attach terminal request: ${terminalId}`);
+
+    try {
+      const existingTerminal = terminalManager.get(terminalId);
+
+      if (existingTerminal) {
+        // Terminal still exists - re-wire output to new socket
+        console.log(`✅ Re-attaching to existing terminal ${terminalId}`);
+
+        // Re-attach data listener
+        existingTerminal.ptyProcess.onData((data) => {
+          socket.emit('terminal:output', { terminalId, data });
+        });
+
+        // Track terminal for cleanup
+        if (!socketTerminals.has(socket.id)) {
+          socketTerminals.set(socket.id, new Set());
+        }
+        socketTerminals.get(socket.id).add(terminalId);
+
+        socket.emit('terminal:reattached', { terminalId });
+      } else {
+        // Terminal is gone - create new one
+        console.log(`⚠️  Terminal ${terminalId} not found, creating new one`);
+        const terminal = terminalManager.create(terminalId, { cwd, cols, rows, botId });
+
+        // Track terminal
+        if (!socketTerminals.has(socket.id)) {
+          socketTerminals.set(socket.id, new Set());
+        }
+        socketTerminals.get(socket.id).add(terminalId);
+
+        // Attach listeners
+        const terminalObj = terminalManager.get(terminalId);
+        if (terminalObj) {
+          terminalObj.ptyProcess.onData((data) => {
+            socket.emit('terminal:output', { terminalId, data });
+          });
+
+          terminalObj.ptyProcess.onExit(({ exitCode, signal }) => {
+            console.log(`🖥️  Terminal ${terminalId} exited with code ${exitCode}${signal ? ` (signal: ${signal})` : ''}`);
+            socket.emit('terminal:exit', { terminalId, exitCode, signal });
+            terminalManager.kill(terminalId);
+          });
+        }
+
+        socket.emit('terminal:created', { terminalId, ...terminal });
+      }
+    } catch (error) {
+      console.error(`❌ Error re-attaching terminal ${terminalId}:`, error);
+      socket.emit('terminal:error', { terminalId, error: error.message });
+    }
+  });
+
   // ========== Workflow Handlers ==========
 
   // Start a new workflow with a user goal
@@ -1621,6 +1678,49 @@ async function connectToProxy() {
             break;
           }
 
+          case 'terminal:reattach': {
+            const { terminalId, cwd, cols, rows, botId } = data;
+            console.log(`🔄 Re-attach terminal request from IDE: ${terminalId}`);
+
+            try {
+              const existingTerminal = terminalManager.get(terminalId);
+
+              if (existingTerminal) {
+                // Terminal still exists - re-wire output to proxy
+                console.log(`✅ Re-attaching to existing terminal ${terminalId}`);
+
+                existingTerminal.ptyProcess.onData((data) => {
+                  sendToProxy('terminal:output', { terminalId, data });
+                });
+
+                sendToProxy('terminal:reattached', { terminalId });
+              } else {
+                // Terminal is gone - create new one
+                console.log(`⚠️  Terminal ${terminalId} not found, creating new one`);
+                const terminal = terminalManager.create(terminalId, { cwd, cols, rows, botId });
+
+                const terminalObj = terminalManager.get(terminalId);
+                if (terminalObj) {
+                  terminalObj.ptyProcess.onData((data) => {
+                    sendToProxy('terminal:output', { terminalId, data });
+                  });
+
+                  terminalObj.ptyProcess.onExit(({ exitCode, signal }) => {
+                    console.log(`🖥️  Terminal ${terminalId} exited with code ${exitCode}${signal ? ` (signal: ${signal})` : ''}`);
+                    sendToProxy('terminal:exit', { terminalId, exitCode, signal });
+                    terminalManager.kill(terminalId);
+                  });
+                }
+
+                sendToProxy('terminal:created', { terminalId, ...terminal });
+              }
+            } catch (error) {
+              console.error(`❌ Error re-attaching terminal ${terminalId}:`, error);
+              sendToProxy('terminal:error', { terminalId, error: error.message });
+            }
+            break;
+          }
+
           default:
             console.log('⚠️  Unknown message from IDE:', eventType, message);
         }
@@ -2128,6 +2228,213 @@ app.get('/files', (req, res) => {
   } catch (error) {
     console.error('Error reading directory:', error);
     res.status(500).json({ error: 'Failed to read directory' });
+  }
+});
+
+// Create file or folder
+app.post('/create-file', express.json(), (req, res) => {
+  try {
+    const { parentPath, name, type, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!parentPath || !name || !type) {
+      return res.status(400).json({ error: 'Missing required fields: parentPath, name, type' });
+    }
+
+    // Security: Ensure we're only writing within the workspace
+    const targetPath = path.join(parentPath, name);
+    const normalizedTarget = path.normalize(targetPath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedTarget.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check if already exists
+    if (fs.existsSync(normalizedTarget)) {
+      return res.status(409).json({ error: 'File or folder already exists' });
+    }
+
+    if (type === 'folder') {
+      fs.mkdirSync(normalizedTarget, { recursive: true });
+    } else {
+      // Ensure parent directory exists
+      fs.mkdirSync(path.dirname(normalizedTarget), { recursive: true });
+      fs.writeFileSync(normalizedTarget, '');
+    }
+
+    console.log(`✅ Created ${type}: ${normalizedTarget}`);
+    res.json({ success: true, path: normalizedTarget });
+  } catch (error) {
+    console.error('Error creating file/folder:', error);
+    res.status(500).json({ error: 'Failed to create file/folder' });
+  }
+});
+
+// Rename file or folder
+app.post('/rename-file', express.json(), (req, res) => {
+  try {
+    const { oldPath, newName, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!oldPath || !newName) {
+      return res.status(400).json({ error: 'Missing required fields: oldPath, newName' });
+    }
+
+    // Security check
+    const normalizedOld = path.normalize(oldPath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedOld.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const newPath = path.join(path.dirname(oldPath), newName);
+    const normalizedNew = path.normalize(newPath);
+    if (!normalizedNew.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check source exists
+    if (!fs.existsSync(normalizedOld)) {
+      return res.status(404).json({ error: 'Source file not found' });
+    }
+
+    // Check target doesn't exist
+    if (fs.existsSync(normalizedNew)) {
+      return res.status(409).json({ error: 'A file with that name already exists' });
+    }
+
+    fs.renameSync(normalizedOld, normalizedNew);
+
+    console.log(`✅ Renamed: ${normalizedOld} → ${normalizedNew}`);
+    res.json({ success: true, oldPath: normalizedOld, newPath: normalizedNew });
+  } catch (error) {
+    console.error('Error renaming file:', error);
+    res.status(500).json({ error: 'Failed to rename file' });
+  }
+});
+
+// Delete file or folder
+app.delete('/delete-file', express.json(), (req, res) => {
+  try {
+    const { filePath, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'Missing required field: filePath' });
+    }
+
+    // Security check
+    const normalizedPath = path.normalize(filePath);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedPath.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Don't allow deleting workspace root
+    if (normalizedPath === normalizedWorkspace) {
+      return res.status(403).json({ error: 'Cannot delete workspace root' });
+    }
+
+    if (!fs.existsSync(normalizedPath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const stats = fs.statSync(normalizedPath);
+    if (stats.isDirectory()) {
+      fs.rmSync(normalizedPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(normalizedPath);
+    }
+
+    console.log(`🗑️  Deleted: ${normalizedPath}`);
+    res.json({ success: true, path: normalizedPath });
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
+});
+
+// Copy/paste files
+app.post('/copy-file', express.json(), (req, res) => {
+  try {
+    const { sources, targetDir, operation, workspace } = req.body;
+    const workspacePath = workspace || process.cwd();
+
+    if (!sources || !targetDir || !operation) {
+      return res.status(400).json({ error: 'Missing required fields: sources, targetDir, operation' });
+    }
+
+    // Security check target directory
+    const normalizedTarget = path.normalize(targetDir);
+    const normalizedWorkspace = path.normalize(workspacePath);
+    if (!normalizedTarget.startsWith(normalizedWorkspace)) {
+      return res.status(403).json({ error: 'Access denied to target directory' });
+    }
+
+    const results = [];
+
+    for (const sourcePath of sources) {
+      // Security check source
+      const normalizedSource = path.normalize(sourcePath);
+      if (!normalizedSource.startsWith(normalizedWorkspace)) {
+        results.push({ source: sourcePath, error: 'Access denied' });
+        continue;
+      }
+
+      if (!fs.existsSync(normalizedSource)) {
+        results.push({ source: sourcePath, error: 'Source not found' });
+        continue;
+      }
+
+      const fileName = path.basename(sourcePath);
+      let destPath = path.join(normalizedTarget, fileName);
+
+      // Handle name conflicts by adding (1), (2), etc.
+      let counter = 1;
+      while (fs.existsSync(destPath)) {
+        const ext = path.extname(fileName);
+        const base = path.basename(fileName, ext);
+        destPath = path.join(normalizedTarget, `${base} (${counter})${ext}`);
+        counter++;
+      }
+
+      try {
+        const stats = fs.statSync(normalizedSource);
+        if (stats.isDirectory()) {
+          // Copy directory recursively
+          fs.cpSync(normalizedSource, destPath, { recursive: true });
+        } else {
+          // Copy file
+          fs.copyFileSync(normalizedSource, destPath);
+        }
+
+        // If this was a cut operation, delete the source
+        if (operation === 'cut') {
+          if (stats.isDirectory()) {
+            fs.rmSync(normalizedSource, { recursive: true, force: true });
+          } else {
+            fs.unlinkSync(normalizedSource);
+          }
+        }
+
+        results.push({ source: sourcePath, dest: destPath, success: true });
+        console.log(`📋 ${operation === 'cut' ? 'Moved' : 'Copied'}: ${normalizedSource} → ${destPath}`);
+      } catch (err) {
+        results.push({ source: sourcePath, error: err.message });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const errorCount = results.filter(r => r.error).length;
+
+    res.json({
+      success: errorCount === 0,
+      results,
+      summary: { total: sources.length, success: successCount, errors: errorCount }
+    });
+  } catch (error) {
+    console.error('Error copying files:', error);
+    res.status(500).json({ error: 'Failed to copy files' });
   }
 });
 

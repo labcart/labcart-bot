@@ -1,0 +1,12 @@
+{
+  "port": 3005,
+  "provider": "openai",
+  "max_file_size_mb": 2000,
+  "max_url_download_mb": 2000,
+  "upload_dir": "./uploads",
+  "openai": {
+    "model": "whisper-1",
+    "response_format": "json",
+    "temperature": 0
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "port": 3006,
+  "provider": "sora",
+  "job_ttl_hours": 24,
+  "poll_interval_ms": 5000,
+  "max_poll_attempts": 360,
+  "output_dir": "./video-output",
+  "sora": {
+    "model": "sora-2",
+    "duration_seconds": 10,
+    "resolution": "1080p",
+    "aspect_ratio": "16:9",
+    "with_audio": true
+  },
+  "sora-pro": {
+    "model": "sora-2-pro",
+    "duration_seconds": 15,
+    "resolution": "1080p",
+    "aspect_ratio": "16:9",
+    "with_audio": true
+  },
+  "runway": {
+    "model": "gen4_turbo",
+    "duration": 5,
+    "ratio": "1280:720",
+    "api_version": "2024-11-06"
+  },
+  "veo": {
+    "model": "veo-3.1-generate-preview",
+    "duration_seconds": "8",
+    "resolution": "1080p",
+    "aspect_ratio": "16:9"
+  },
+  "pika": {
+    "model": "fal-ai/pika/v2.2/text-to-video",
+    "resolution": "1080p",
+    "duration": 5,
+    "aspect_ratio": "16:9"
+  },
+  "kling": {
+    "provider": "kie",
+    "model": "kling-2.1",
+    "duration": 5,
+    "with_audio": false
+  }
+}

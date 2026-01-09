@@ -115,6 +115,20 @@ const BASE_SERVICES = {
   'sync_sessions': {
     url: 'http://localhost:3003/sync_sessions',
     schemaUrl: 'http://localhost:3003/schema'
+  },
+
+  // Live Data Service (sports scores, stock quotes, news headlines)
+  'get_live_scores': {
+    url: 'http://localhost:3004/get_live_scores',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'get_stock_quote': {
+    url: 'http://localhost:3004/get_stock_quote',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'get_news_headlines': {
+    url: 'http://localhost:3004/get_news_headlines',
+    schemaUrl: 'http://localhost:3004/schema'
   }
 };
 

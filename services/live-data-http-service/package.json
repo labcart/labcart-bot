@@ -1,0 +1,27 @@
+{
+  "name": "live-data-http-service-standalone",
+  "version": "1.0.0",
+  "description": "HTTP service for live sports scores, stock quotes, and news headlines",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "sports",
+    "stocks",
+    "news",
+    "live-data",
+    "mcp",
+    "http-service"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2",
+    "p-queue": "^8.0.1"
+  }
+}

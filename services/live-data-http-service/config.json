@@ -1,0 +1,32 @@
+{
+  "providers": {
+    "sports": {
+      "primary": "espn",
+      "fallback": "thesportsdb"
+    },
+    "stocks": {
+      "primary": "yahoo",
+      "fallback": "finnhub"
+    },
+    "news": {
+      "primary": "newsapi",
+      "fallback": "gnews"
+    }
+  },
+  "cache": {
+    "live_game_ttl_seconds": 60,
+    "final_score_ttl_seconds": 3600,
+    "stock_quote_ttl_seconds": 30,
+    "news_ttl_seconds": 300
+  },
+  "rate_limits": {
+    "sports_per_second": 10,
+    "stocks_per_second": 5,
+    "news_per_second": 2
+  },
+  "defaults": {
+    "news_country": "us",
+    "news_limit": 5,
+    "stock_include_history": false
+  }
+}

@@ -204,6 +204,15 @@ app.get('/schema', (req, res) => {
             type: 'string',
             description: 'Custom filename prefix (optional). Timestamp will be automatically appended. Example: "portrait" becomes "portrait-1234567890.png"',
           },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys for providers. If not provided, falls back to server environment variables.',
+            properties: {
+              openai: { type: 'string', description: 'OpenAI API key (sk-...)' },
+              replicate: { type: 'string', description: 'Replicate API token' },
+              google_ai: { type: 'string', description: 'Google AI API key for Imagen' },
+            },
+          },
         },
         required: ['prompt'],
       },
@@ -242,6 +251,15 @@ app.get('/schema', (req, res) => {
             type: 'string',
             description: 'Custom filename prefix (optional)',
           },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys for providers. If not provided, falls back to server environment variables.',
+            properties: {
+              openai: { type: 'string', description: 'OpenAI API key (sk-...)' },
+              replicate: { type: 'string', description: 'Replicate API token' },
+              google_ai: { type: 'string', description: 'Google AI API key for Imagen' },
+            },
+          },
         },
         required: ['image', 'prompt'],
       },
@@ -260,7 +278,7 @@ app.get('/schema', (req, res) => {
 // Execute generate_image tool
 app.post('/generate_image', async (req, res) => {
   try {
-    const { prompt, model, size, quality, style, n, include_base64 = false, filename, output_dir, r2_config } = req.body;
+    const { prompt, model, size, quality, style, n, include_base64 = false, filename, output_dir, r2_config, api_keys } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'prompt parameter is required' });
@@ -288,6 +306,17 @@ app.post('/generate_image', async (req, res) => {
       provider.config.output_dir = output_dir;
     }
 
+    // Determine which API key to use based on provider
+    // openaiProvider uses 'openai', replicateProvider uses 'replicate', imagenProvider uses 'google_ai'
+    let providerApiKey;
+    if (provider === openaiProvider) {
+      providerApiKey = api_keys?.openai;
+    } else if (provider === replicateProvider) {
+      providerApiKey = api_keys?.replicate;
+    } else if (provider === imagenProvider) {
+      providerApiKey = api_keys?.google_ai;
+    }
+
     // Use queue to prevent concurrent API calls
     const result = await requestQueue.add(async () => {
       return await provider.generateImage({
@@ -301,6 +330,7 @@ app.post('/generate_image', async (req, res) => {
         guidance_scale: req.body.guidance_scale, // Replicate-specific
         n,
         filename,
+        apiKey: providerApiKey,
       });
     });
 
@@ -411,7 +441,7 @@ app.post('/generate_image', async (req, res) => {
 // Execute edit_image tool
 app.post('/edit_image', async (req, res) => {
   try {
-    const { image, prompt, negative_prompt, mask, model, size, quality, input_fidelity, n, include_base64 = false, filename, output_dir, r2_config } = req.body;
+    const { image, prompt, negative_prompt, mask, model, size, quality, input_fidelity, n, include_base64 = false, filename, output_dir, r2_config, api_keys } = req.body;
 
     if (!image) {
       return res.status(400).json({ error: 'image parameter is required' });
@@ -438,6 +468,16 @@ app.post('/edit_image', async (req, res) => {
       provider.config.output_dir = output_dir;
     }
 
+    // Determine which API key to use based on provider
+    let providerApiKey;
+    if (provider === openaiProvider) {
+      providerApiKey = api_keys?.openai;
+    } else if (provider === replicateProvider) {
+      providerApiKey = api_keys?.replicate;
+    } else if (provider === imagenProvider) {
+      providerApiKey = api_keys?.google_ai;
+    }
+
     // Use queue to prevent concurrent API calls
     const result = await requestQueue.add(async () => {
       return await provider.editImage({
@@ -455,6 +495,7 @@ app.post('/edit_image', async (req, res) => {
         guidance_scale: req.body.guidance_scale, // Replicate-specific
         n,
         filename,
+        apiKey: providerApiKey,
       });
     });
 

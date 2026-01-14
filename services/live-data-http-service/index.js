@@ -176,6 +176,13 @@ app.get('/schema', (req, res) => {
         properties: {
           symbol: { type: 'string', description: 'Ticker symbol - "AAPL", "GOOGL", "BTC-USD"' },
           include_history: { type: 'boolean', description: 'Include 5-day price history (default: false)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              finnhub: { type: 'string', description: 'Finnhub API key (for fallback)' },
+            },
+          },
         },
         required: ['symbol'],
       },
@@ -190,6 +197,14 @@ app.get('/schema', (req, res) => {
           query: { type: 'string', description: 'Search term (optional)' },
           country: { type: 'string', description: '2-letter country code (default: us)' },
           limit: { type: 'number', description: 'Number of headlines (default: 5, max: 20)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              newsapi: { type: 'string', description: 'NewsAPI API key' },
+              gnews: { type: 'string', description: 'GNews API key (for fallback)' },
+            },
+          },
         },
       },
     },
@@ -217,6 +232,13 @@ app.get('/schema', (req, res) => {
           view_id: { type: 'string', description: 'Filter by view ID' },
           tag: { type: 'string', description: 'Filter by tag' },
           limit: { type: 'number', description: 'Max results (default: 50)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
       },
     },
@@ -231,6 +253,13 @@ app.get('/schema', (req, res) => {
           title: { type: 'string', description: 'Optional title' },
           tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags array' },
           view_id: { type: 'string', description: 'Optional view ID' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['content', 'project_id'],
       },
@@ -245,6 +274,13 @@ app.get('/schema', (req, res) => {
           content: { type: 'string', description: 'New content' },
           title: { type: 'string', description: 'New title' },
           tags: { type: 'array', items: { type: 'string' }, description: 'New tags' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['id'],
       },
@@ -256,6 +292,13 @@ app.get('/schema', (req, res) => {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'Snippet ID to delete (required)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['id'],
       },
@@ -264,7 +307,18 @@ app.get('/schema', (req, res) => {
     {
       name: 'tapjot_list_projects',
       description: 'List all projects in Tapjot.',
-      inputSchema: { type: 'object', properties: {} },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
+        },
+      },
     },
     {
       name: 'tapjot_create_project',
@@ -275,6 +329,13 @@ app.get('/schema', (req, res) => {
           name: { type: 'string', description: 'Project name (required)' },
           description: { type: 'string', description: 'Optional description' },
           visibility: { type: 'string', enum: ['private', 'public'], description: 'Visibility (default: private)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['name'],
       },
@@ -288,6 +349,13 @@ app.get('/schema', (req, res) => {
           id: { type: 'string', description: 'Project ID (required)' },
           name: { type: 'string', description: 'New name' },
           description: { type: 'string', description: 'New description' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['id'],
       },
@@ -299,6 +367,13 @@ app.get('/schema', (req, res) => {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'Project ID to delete (required)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['id'],
       },
@@ -311,6 +386,13 @@ app.get('/schema', (req, res) => {
         type: 'object',
         properties: {
           project_id: { type: 'string', description: 'Filter by project ID' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
       },
     },
@@ -322,6 +404,13 @@ app.get('/schema', (req, res) => {
         properties: {
           name: { type: 'string', description: 'View name (required)' },
           project_id: { type: 'string', description: 'Project ID (required)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['name', 'project_id'],
       },
@@ -333,6 +422,13 @@ app.get('/schema', (req, res) => {
         type: 'object',
         properties: {
           id: { type: 'string', description: 'View ID to delete (required)' },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              tapjot: { type: 'string', description: 'Tapjot API key' },
+            },
+          },
         },
         required: ['id'],
       },
@@ -455,7 +551,7 @@ app.post('/get_stock_quote', async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const { symbol, include_history = false } = req.body;
+    const { symbol, include_history = false, api_keys } = req.body;
 
     if (!symbol) {
       return res.status(400).json({ error: 'symbol parameter is required' });
@@ -502,13 +598,15 @@ app.post('/get_stock_quote', async (req, res) => {
     } catch (yahooError) {
       console.warn(`⚠️  Yahoo Finance failed: ${yahooError.message}, trying Finnhub...`);
 
-      if (!providers.stocks.finnhub.isConfigured()) {
+      // Check if Finnhub is available (with request key or ENV key)
+      const finnhubKey = api_keys?.finnhub;
+      if (!providers.stocks.finnhub.isConfigured() && !finnhubKey) {
         throw new Error(`Yahoo Finance failed and Finnhub not configured: ${yahooError.message}`);
       }
 
       source = 'finnhub';
       result = await stocksQueue.add(async () => {
-        return await providers.stocks.finnhub.getQuote(upperSymbol, include_history);
+        return await providers.stocks.finnhub.getQuote(upperSymbol, include_history, finnhubKey);
       });
     }
 
@@ -566,7 +664,12 @@ app.post('/get_news_headlines', async (req, res) => {
       query = null,
       country = config.defaults?.news_country || 'us',
       limit = config.defaults?.news_limit || 5,
+      api_keys,
     } = req.body;
+
+    // Get API keys from request or fall back to ENV
+    const newsapiKey = api_keys?.newsapi;
+    const gnewsKey = api_keys?.gnews;
 
     // Build cache key
     const cacheKey = `news:${category}:${country}:${query || ''}:${limit}`;
@@ -601,41 +704,45 @@ app.post('/get_news_headlines', async (req, res) => {
     let result;
     let source = 'newsapi';
 
-    // Try NewsAPI first if configured
-    if (providers.news.newsapi.isConfigured()) {
+    // Check if NewsAPI is available (with request key or ENV key)
+    const newsapiAvailable = providers.news.newsapi.isConfigured() || newsapiKey;
+    const gnewsAvailable = providers.news.gnews.isConfigured() || gnewsKey;
+
+    // Try NewsAPI first if available
+    if (newsapiAvailable) {
       try {
         result = await newsQueue.add(async () => {
           if (query) {
-            return await providers.news.newsapi.searchNews(query, { limit });
+            return await providers.news.newsapi.searchNews(query, { limit }, newsapiKey);
           }
-          return await providers.news.newsapi.getHeadlines({ category, country, limit });
+          return await providers.news.newsapi.getHeadlines({ category, country, limit }, newsapiKey);
         });
       } catch (newsapiError) {
         console.warn(`⚠️  NewsAPI failed: ${newsapiError.message}, trying GNews...`);
 
-        if (!providers.news.gnews.isConfigured()) {
+        if (!gnewsAvailable) {
           throw new Error(`NewsAPI failed and GNews not configured: ${newsapiError.message}`);
         }
 
         source = 'gnews';
         result = await newsQueue.add(async () => {
           if (query) {
-            return await providers.news.gnews.searchNews(query, { limit });
+            return await providers.news.gnews.searchNews(query, { limit }, gnewsKey);
           }
-          return await providers.news.gnews.getHeadlines({ category, country, limit });
+          return await providers.news.gnews.getHeadlines({ category, country, limit }, gnewsKey);
         });
       }
-    } else if (providers.news.gnews.isConfigured()) {
-      // Fall back to GNews if NewsAPI not configured
+    } else if (gnewsAvailable) {
+      // Fall back to GNews if NewsAPI not available
       source = 'gnews';
       result = await newsQueue.add(async () => {
         if (query) {
-          return await providers.news.gnews.searchNews(query, { limit });
+          return await providers.news.gnews.searchNews(query, { limit }, gnewsKey);
         }
-        return await providers.news.gnews.getHeadlines({ category, country, limit });
+        return await providers.news.gnews.getHeadlines({ category, country, limit }, gnewsKey);
       });
     } else {
-      throw new Error('No news provider configured. Please set NEWSAPI_API_KEY or GNEWS_API_KEY in .env');
+      throw new Error('No news provider configured. Please pass api_keys.newsapi or api_keys.gnews, or set NEWSAPI_API_KEY or GNEWS_API_KEY in .env');
     }
 
     // Cache the result
@@ -928,7 +1035,8 @@ app.post('/get_prediction_markets', async (req, res) => {
 
 app.post('/tapjot_list_snippets', async (req, res) => {
   try {
-    const result = await providers.tapjot.client.listSnippets(req.body);
+    const { api_keys, ...params } = req.body;
+    const result = await providers.tapjot.client.listSnippets({ ...params, apiKey: api_keys?.tapjot });
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_list_snippets] Error:', error.message);
@@ -938,7 +1046,8 @@ app.post('/tapjot_list_snippets', async (req, res) => {
 
 app.post('/tapjot_create_snippet', async (req, res) => {
   try {
-    const result = await providers.tapjot.client.createSnippet(req.body);
+    const { api_keys, ...params } = req.body;
+    const result = await providers.tapjot.client.createSnippet({ ...params, apiKey: api_keys?.tapjot });
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_create_snippet] Error:', error.message);
@@ -948,9 +1057,9 @@ app.post('/tapjot_create_snippet', async (req, res) => {
 
 app.post('/tapjot_update_snippet', async (req, res) => {
   try {
-    const { id, ...updates } = req.body;
+    const { id, api_keys, ...updates } = req.body;
     if (!id) return res.status(400).json({ error: 'id is required' });
-    const result = await providers.tapjot.client.updateSnippet(id, updates);
+    const result = await providers.tapjot.client.updateSnippet(id, { ...updates, apiKey: api_keys?.tapjot });
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_update_snippet] Error:', error.message);
@@ -960,9 +1069,9 @@ app.post('/tapjot_update_snippet', async (req, res) => {
 
 app.post('/tapjot_delete_snippet', async (req, res) => {
   try {
-    const { id } = req.body;
+    const { id, api_keys } = req.body;
     if (!id) return res.status(400).json({ error: 'id is required' });
-    const result = await providers.tapjot.client.deleteSnippet(id);
+    const result = await providers.tapjot.client.deleteSnippet(id, api_keys?.tapjot);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_delete_snippet] Error:', error.message);
@@ -976,7 +1085,8 @@ app.post('/tapjot_delete_snippet', async (req, res) => {
 
 app.post('/tapjot_list_projects', async (req, res) => {
   try {
-    const result = await providers.tapjot.client.listProjects();
+    const { api_keys } = req.body;
+    const result = await providers.tapjot.client.listProjects(api_keys?.tapjot);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_list_projects] Error:', error.message);
@@ -986,7 +1096,8 @@ app.post('/tapjot_list_projects', async (req, res) => {
 
 app.post('/tapjot_create_project', async (req, res) => {
   try {
-    const result = await providers.tapjot.client.createProject(req.body);
+    const { api_keys, ...params } = req.body;
+    const result = await providers.tapjot.client.createProject({ ...params, apiKey: api_keys?.tapjot });
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_create_project] Error:', error.message);
@@ -996,9 +1107,9 @@ app.post('/tapjot_create_project', async (req, res) => {
 
 app.post('/tapjot_update_project', async (req, res) => {
   try {
-    const { id, ...updates } = req.body;
+    const { id, api_keys, ...updates } = req.body;
     if (!id) return res.status(400).json({ error: 'id is required' });
-    const result = await providers.tapjot.client.updateProject(id, updates);
+    const result = await providers.tapjot.client.updateProject(id, { ...updates, apiKey: api_keys?.tapjot });
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_update_project] Error:', error.message);
@@ -1008,9 +1119,9 @@ app.post('/tapjot_update_project', async (req, res) => {
 
 app.post('/tapjot_delete_project', async (req, res) => {
   try {
-    const { id } = req.body;
+    const { id, api_keys } = req.body;
     if (!id) return res.status(400).json({ error: 'id is required' });
-    const result = await providers.tapjot.client.deleteProject(id);
+    const result = await providers.tapjot.client.deleteProject(id, api_keys?.tapjot);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_delete_project] Error:', error.message);
@@ -1024,7 +1135,8 @@ app.post('/tapjot_delete_project', async (req, res) => {
 
 app.post('/tapjot_list_views', async (req, res) => {
   try {
-    const result = await providers.tapjot.client.listViews(req.body);
+    const { api_keys, ...params } = req.body;
+    const result = await providers.tapjot.client.listViews({ ...params, apiKey: api_keys?.tapjot });
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_list_views] Error:', error.message);
@@ -1034,7 +1146,8 @@ app.post('/tapjot_list_views', async (req, res) => {
 
 app.post('/tapjot_create_view', async (req, res) => {
   try {
-    const result = await providers.tapjot.client.createView(req.body);
+    const { api_keys, ...params } = req.body;
+    const result = await providers.tapjot.client.createView({ ...params, apiKey: api_keys?.tapjot });
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_create_view] Error:', error.message);
@@ -1044,9 +1157,9 @@ app.post('/tapjot_create_view', async (req, res) => {
 
 app.post('/tapjot_delete_view', async (req, res) => {
   try {
-    const { id } = req.body;
+    const { id, api_keys } = req.body;
     if (!id) return res.status(400).json({ error: 'id is required' });
-    const result = await providers.tapjot.client.deleteView(id);
+    const result = await providers.tapjot.client.deleteView(id, api_keys?.tapjot);
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ [tapjot_delete_view] Error:', error.message);

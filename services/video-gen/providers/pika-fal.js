@@ -17,12 +17,34 @@ export class PikaFalProvider {
     };
   }
 
+  /**
+   * Check if provider is configured (has default API key)
+   */
+  isConfigured() {
+    return !!this.apiKey;
+  }
+
+  /**
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
+   */
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.fal in request or set FAL_KEY environment variable.');
+    }
+    return key;
+  }
+
   get name() {
     return 'pika';
   }
 
   /**
    * Submit a video generation job
+   * @param {Object} options - Job options
+   * @param {string} [options.apiKey] - Optional API key (falls back to ENV)
    */
   async createJob(options = {}) {
     const {
@@ -32,12 +54,15 @@ export class PikaFalProvider {
       resolution,
       duration,
       aspect_ratio,
-      seed
+      seed,
+      apiKey
     } = options;
 
     if (!prompt) {
       throw new Error('prompt is required');
     }
+
+    const key = this.getApiKey(apiKey);
 
     // Choose model based on whether image is provided
     let modelPath = model || this.config.model;
@@ -66,7 +91,7 @@ export class PikaFalProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Key ${this.apiKey}`
+        'Authorization': `Key ${key}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -88,15 +113,19 @@ export class PikaFalProvider {
 
   /**
    * Check job status
+   * @param {string} providerJobId - Provider job ID
+   * @param {string} [model] - Model path
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async getStatus(providerJobId, model) {
+  async getStatus(providerJobId, model, apiKey) {
+    const key = this.getApiKey(apiKey);
     const modelPath = model || this.config.model;
 
     const response = await fetch(
       `${this.baseUrl}/${modelPath}/requests/${providerJobId}/status`,
       {
         headers: {
-          'Authorization': `Key ${this.apiKey}`
+          'Authorization': `Key ${key}`
         }
       }
     );
@@ -119,7 +148,7 @@ export class PikaFalProvider {
         `${this.baseUrl}/${modelPath}/requests/${providerJobId}`,
         {
           headers: {
-            'Authorization': `Key ${this.apiKey}`
+            'Authorization': `Key ${key}`
           }
         }
       );

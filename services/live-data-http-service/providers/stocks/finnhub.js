@@ -1,8 +1,8 @@
 /**
  * Finnhub API Provider (Fallback)
  *
+ * Supports dynamic API keys passed per-request, with ENV fallback.
  * Official API with free tier (60 req/min).
- * Requires API key.
  *
  * Docs: https://finnhub.io/docs/api
  */
@@ -19,26 +19,40 @@ export class FinnhubProvider {
   }
 
   /**
-   * Check if provider is configured
+   * Check if provider is configured (has default API key)
    */
   isConfigured() {
     return !!this.apiKey;
   }
 
   /**
-   * Get real-time quote for a symbol
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
    */
-  async getQuote(symbol, includeHistory = false) {
-    if (!this.apiKey) {
-      throw new Error('Finnhub API key not configured');
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.finnhub in request or set FINNHUB_API_KEY environment variable.');
     }
+    return key;
+  }
+
+  /**
+   * Get real-time quote for a symbol
+   * @param {string} symbol - Stock symbol
+   * @param {boolean} [includeHistory] - Include price history
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
+   */
+  async getQuote(symbol, includeHistory = false, apiKey) {
+    const key = this.getApiKey(apiKey);
 
     const upperSymbol = symbol.toUpperCase();
 
     console.log(`📊 [Finnhub] Fetching quote for: ${upperSymbol}`);
 
     // Get quote
-    const quoteUrl = `${BASE_URL}/quote?symbol=${encodeURIComponent(upperSymbol)}&token=${this.apiKey}`;
+    const quoteUrl = `${BASE_URL}/quote?symbol=${encodeURIComponent(upperSymbol)}&token=${key}`;
 
     const response = await fetch(quoteUrl);
     if (!response.ok) {
@@ -72,7 +86,7 @@ export class FinnhubProvider {
     // Include candle history if requested
     if (includeHistory) {
       try {
-        const history = await this.getCandles(upperSymbol, 5);
+        const history = await this.getCandles(upperSymbol, 5, key);
         result.history = history;
       } catch (error) {
         console.warn(`[Finnhub] Could not fetch history: ${error.message}`);
@@ -84,16 +98,17 @@ export class FinnhubProvider {
 
   /**
    * Get historical candles
+   * @param {string} symbol - Stock symbol
+   * @param {number} [days] - Number of days of history
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async getCandles(symbol, days = 5) {
-    if (!this.apiKey) {
-      throw new Error('Finnhub API key not configured');
-    }
+  async getCandles(symbol, days = 5, apiKey) {
+    const key = this.getApiKey(apiKey);
 
     const now = Math.floor(Date.now() / 1000);
     const from = now - days * 24 * 60 * 60;
 
-    const url = `${BASE_URL}/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${now}&token=${this.apiKey}`;
+    const url = `${BASE_URL}/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${now}&token=${key}`;
 
     const response = await fetch(url);
     if (!response.ok) {
@@ -118,13 +133,13 @@ export class FinnhubProvider {
 
   /**
    * Search for symbols
+   * @param {string} query - Search query
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async searchSymbol(query) {
-    if (!this.apiKey) {
-      throw new Error('Finnhub API key not configured');
-    }
+  async searchSymbol(query, apiKey) {
+    const key = this.getApiKey(apiKey);
 
-    const url = `${BASE_URL}/search?q=${encodeURIComponent(query)}&token=${this.apiKey}`;
+    const url = `${BASE_URL}/search?q=${encodeURIComponent(query)}&token=${key}`;
 
     const response = await fetch(url);
     if (!response.ok) {

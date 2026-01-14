@@ -10,28 +10,52 @@ const __dirname = path.dirname(__filename);
 /**
  * OpenAI DALL-E Image Generation Provider
  *
- * Requires OPENAI_API_KEY environment variable
+ * Supports dynamic API keys passed per-request, with ENV fallback.
+ * Pass apiKey in method params to use a specific key, otherwise
+ * falls back to OPENAI_API_KEY environment variable.
  */
 export class OpenAIDALLEProvider {
   constructor(config) {
     this.config = config;
-    this.client = null;
+    this.client = null;  // Default client using ENV key
   }
 
   /**
-   * Initialize the OpenAI client
+   * Get an OpenAI client instance
+   * @param {string} [apiKey] - Optional API key (uses ENV if not provided)
+   * @returns {OpenAI} OpenAI client instance
+   */
+  getClient(apiKey) {
+    const key = apiKey || process.env.OPENAI_API_KEY;
+
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.openai in request or set OPENAI_API_KEY environment variable.');
+    }
+
+    // If using ENV key and we have a cached client, return it
+    if (!apiKey && this.client) {
+      return this.client;
+    }
+
+    // Create new client with the provided key
+    return new OpenAI({ apiKey: key });
+  }
+
+  /**
+   * Initialize the default OpenAI client (for ENV-based usage)
    */
   async initialize() {
     try {
       const apiKey = process.env.OPENAI_API_KEY;
 
       if (!apiKey) {
-        throw new Error('OPENAI_API_KEY environment variable not set');
+        console.warn('⚠️  OPENAI_API_KEY not set - will require api_keys.openai in requests');
+        return false;
       }
 
       this.client = new OpenAI({ apiKey });
 
-      console.log('✅ OpenAI DALL-E initialized successfully');
+      console.log('✅ OpenAI DALL-E initialized with ENV key');
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize OpenAI DALL-E:', error.message);
@@ -64,12 +88,12 @@ export class OpenAIDALLEProvider {
    * @param {string} [params.style] - Image style (vivid, natural) - dall-e-3 only
    * @param {number} [params.n] - Number of images to generate (1-10 for DALL-E 2, only 1 for DALL-E 3)
    * @param {string} [params.filename] - Custom filename prefix (timestamp will be appended)
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Object>} Image data and metadata
    */
-  async generateImage({ prompt, model, size, quality, style, n, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async generateImage({ prompt, model, size, quality, style, n, filename, apiKey }) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     const modelName = model || this.config.model || 'dall-e-3';
     const imageSize = size || this.config.size || '1024x1024';
@@ -108,7 +132,7 @@ export class OpenAIDALLEProvider {
         requestParams.style = imageStyle;
       }
 
-      const response = await this.client.images.generate(requestParams);
+      const response = await client.images.generate(requestParams);
 
       // Process all generated images
       const images = [];
@@ -218,12 +242,12 @@ export class OpenAIDALLEProvider {
    * @param {string} [params.input_fidelity] - Input fidelity for gpt-image-1 (low, high)
    * @param {number} [params.n] - Number of variations (1-10)
    * @param {string} [params.filename] - Custom filename prefix
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Object>} Edited image data and metadata
    */
-  async editImage({ image, prompt, mask, model, size, quality, input_fidelity, n, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async editImage({ image, prompt, mask, model, size, quality, input_fidelity, n, filename, apiKey }) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     const modelName = model || 'dall-e-2';
     const imageSize = size || '1024x1024';
@@ -281,7 +305,7 @@ export class OpenAIDALLEProvider {
         requestParams.mask = maskFile;
       }
 
-      const response = await this.client.images.edit(requestParams);
+      const response = await client.images.edit(requestParams);
 
       // Process all edited images
       const images = [];

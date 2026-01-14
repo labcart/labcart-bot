@@ -9,33 +9,57 @@ const __dirname = path.dirname(__filename);
 /**
  * Google Imagen Provider (Nano Banana)
  *
- * Supports:
+ * Supports dynamic API keys passed per-request, with ENV fallback.
+ * Pass apiKey in method params to use a specific key, otherwise
+ * falls back to GOOGLE_AI_API_KEY environment variable.
+ *
+ * Models:
  * - imagen-4.0-generate-001 (Imagen 4 - best quality)
  * - imagen-4.0-fast-generate-001 (Imagen 4 Fast - fastest, cheapest)
  * - imagen-4.0-ultra-generate-001 (Imagen 4 Ultra - highest prompt alignment)
- *
- * Requires GOOGLE_AI_API_KEY environment variable
  */
 export class GoogleImagenProvider {
   constructor(config) {
     this.config = config;
-    this.client = null;
+    this.client = null;  // Default client using ENV key
   }
 
   /**
-   * Initialize the Google AI client
+   * Get a Google GenAI client instance
+   * @param {string} [apiKey] - Optional API key (uses ENV if not provided)
+   * @returns {GoogleGenAI} GoogleGenAI client instance
+   */
+  getClient(apiKey) {
+    const key = apiKey || process.env.GOOGLE_AI_API_KEY;
+
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.google_ai in request or set GOOGLE_AI_API_KEY environment variable.');
+    }
+
+    // If using ENV key and we have a cached client, return it
+    if (!apiKey && this.client) {
+      return this.client;
+    }
+
+    // Create new client with the provided key
+    return new GoogleGenAI({ apiKey: key });
+  }
+
+  /**
+   * Initialize the default Google AI client (for ENV-based usage)
    */
   async initialize() {
     try {
       const apiKey = process.env.GOOGLE_AI_API_KEY;
 
       if (!apiKey) {
-        throw new Error('GOOGLE_AI_API_KEY environment variable not set');
+        console.warn('⚠️  GOOGLE_AI_API_KEY not set - will require api_keys.google_ai in requests');
+        return false;
       }
 
       this.client = new GoogleGenAI({ apiKey });
 
-      console.log('✅ Google Imagen (Nano Banana) initialized successfully');
+      console.log('✅ Google Imagen initialized with ENV key');
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize Google Imagen:', error.message);
@@ -52,12 +76,12 @@ export class GoogleImagenProvider {
    * @param {string} [params.size] - Image size (1K, 2K, 4K)
    * @param {number} [params.n] - Number of images (1-4)
    * @param {string} [params.filename] - Custom filename prefix
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Object>} Image data and metadata
    */
-  async generateImage({ prompt, model, size, n, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async generateImage({ prompt, model, size, n, filename, apiKey }) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     // Default to Imagen 4 Fast (good balance of speed and quality)
     const modelName = model || this.config.model || 'imagen-4.0-fast-generate-001';
@@ -90,7 +114,7 @@ export class GoogleImagenProvider {
       }
 
       // Generate images using Imagen API
-      const response = await this.client.models.generateImages({
+      const response = await client.models.generateImages({
         model: modelName,
         prompt: prompt,
         config: apiConfig
@@ -178,8 +202,9 @@ export class GoogleImagenProvider {
 
   /**
    * Edit an existing image (if supported by Imagen)
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    */
-  async editImage({ image, prompt, mask, size, n, filename }) {
+  async editImage({ image, prompt, mask, size, n, filename, apiKey }) {
     throw new Error('Image editing not yet implemented for Google Imagen');
   }
 }

@@ -1,0 +1,21 @@
+{
+  "tts_openai": "your-openai-key",
+  "tts_elevenlabs": "your-elevenlabs-key",
+  "tts_google": "your-google-key",
+
+  "image_gen_openai": "your-openai-key",
+  "image_gen_replicate": "your-replicate-key",
+  "image_gen_google": "your-google-key",
+  "image_gen_fal": "your-fal-key",
+
+  "video_gen_openai": "your-openai-key",
+  "video_gen_runway": "your-runway-key",
+  "video_gen_google": "your-google-key",
+  "video_gen_fal": "your-fal-key",
+  "video_gen_kie": "your-kie-key",
+
+  "live_data_finnhub": "your-finnhub-key",
+  "live_data_newsapi": "your-newsapi-key",
+  "live_data_gnews": "your-gnews-key",
+  "live_data_tapjot": "your-tapjot-key"
+}

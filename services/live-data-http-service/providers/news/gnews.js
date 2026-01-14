@@ -1,8 +1,8 @@
 /**
  * GNews API Provider (Fallback)
  *
+ * Supports dynamic API keys passed per-request, with ENV fallback.
  * Official API with free tier (100 req/day).
- * Requires API key.
  *
  * Docs: https://gnews.io/docs
  */
@@ -32,19 +32,32 @@ export class GNewsProvider {
   }
 
   /**
-   * Check if provider is configured
+   * Check if provider is configured (has default API key)
    */
   isConfigured() {
     return !!this.apiKey;
   }
 
   /**
-   * Get top headlines
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
    */
-  async getHeadlines(options = {}) {
-    if (!this.apiKey) {
-      throw new Error('GNews API key not configured');
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.gnews in request or set GNEWS_API_KEY environment variable.');
     }
+    return key;
+  }
+
+  /**
+   * Get top headlines
+   * @param {Object} [options] - Query options
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
+   */
+  async getHeadlines(options = {}, apiKey) {
+    const key = this.getApiKey(apiKey);
 
     const {
       category = 'general',
@@ -58,7 +71,7 @@ export class GNewsProvider {
 
     const url = new URL(`${BASE_URL}/top-headlines`);
 
-    url.searchParams.set('token', this.apiKey);
+    url.searchParams.set('token', key);
     url.searchParams.set('lang', 'en');
     url.searchParams.set('country', country);
     url.searchParams.set('max', Math.min(limit, 10).toString()); // GNews free tier max is 10
@@ -85,17 +98,18 @@ export class GNewsProvider {
 
   /**
    * Search news
+   * @param {string} query - Search query
+   * @param {Object} [options] - Query options
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async searchNews(query, options = {}) {
-    if (!this.apiKey) {
-      throw new Error('GNews API key not configured');
-    }
+  async searchNews(query, options = {}, apiKey) {
+    const key = this.getApiKey(apiKey);
 
     const { limit = 5 } = options;
 
     const url = new URL(`${BASE_URL}/search`);
     url.searchParams.set('q', query);
-    url.searchParams.set('token', this.apiKey);
+    url.searchParams.set('token', key);
     url.searchParams.set('lang', 'en');
     url.searchParams.set('max', Math.min(limit, 10).toString());
 

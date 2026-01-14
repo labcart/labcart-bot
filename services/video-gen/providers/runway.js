@@ -18,12 +18,34 @@ export class RunwayProvider {
     };
   }
 
+  /**
+   * Check if provider is configured (has default API key)
+   */
+  isConfigured() {
+    return !!this.apiKey;
+  }
+
+  /**
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
+   */
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.runway in request or set RUNWAYML_API_SECRET environment variable.');
+    }
+    return key;
+  }
+
   get name() {
     return 'runway';
   }
 
   /**
    * Submit a video generation job
+   * @param {Object} options - Job options
+   * @param {string} [options.apiKey] - Optional API key (falls back to ENV)
    */
   async createJob(options = {}) {
     const {
@@ -31,12 +53,15 @@ export class RunwayProvider {
       image_url,      // Required for image-to-video
       model,
       duration,
-      ratio
+      ratio,
+      apiKey
     } = options;
 
     if (!prompt) {
       throw new Error('prompt is required');
     }
+
+    const key = this.getApiKey(apiKey);
 
     const requestBody = {
       model: model || this.config.model,
@@ -56,7 +81,7 @@ export class RunwayProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
+        'Authorization': `Bearer ${key}`,
         'X-Runway-Version': this.apiVersion
       },
       body: JSON.stringify(requestBody)
@@ -79,11 +104,16 @@ export class RunwayProvider {
 
   /**
    * Check job status
+   * @param {string} providerJobId - Provider job ID
+   * @param {string} [operationName] - Operation name (unused for Runway)
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async getStatus(providerJobId) {
+  async getStatus(providerJobId, operationName, apiKey) {
+    const key = this.getApiKey(apiKey);
+
     const response = await fetch(`${this.baseUrl}/tasks/${providerJobId}`, {
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        'Authorization': `Bearer ${key}`,
         'X-Runway-Version': this.apiVersion
       }
     });

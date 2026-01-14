@@ -10,28 +10,52 @@ const __dirname = path.dirname(__filename);
 /**
  * ElevenLabs Text-to-Speech Provider
  *
- * Requires ELEVENLABS_API_KEY environment variable
+ * Supports dynamic API keys passed per-request, with ENV fallback.
+ * Pass apiKey in method params to use a specific key, otherwise
+ * falls back to ELEVENLABS_API_KEY environment variable.
  */
 export class ElevenLabsTTSProvider {
   constructor(config) {
     this.config = config;
-    this.client = null;
+    this.client = null;  // Default client using ENV key
   }
 
   /**
-   * Initialize the ElevenLabs client
+   * Get an ElevenLabs client instance
+   * @param {string} [apiKey] - Optional API key (uses ENV if not provided)
+   * @returns {ElevenLabsClient} ElevenLabs client instance
+   */
+  getClient(apiKey) {
+    const key = apiKey || process.env.ELEVENLABS_API_KEY;
+
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.elevenlabs in request or set ELEVENLABS_API_KEY environment variable.');
+    }
+
+    // If using ENV key and we have a cached client, return it
+    if (!apiKey && this.client) {
+      return this.client;
+    }
+
+    // Create new client with the provided key
+    return new ElevenLabsClient({ apiKey: key });
+  }
+
+  /**
+   * Initialize the default ElevenLabs client (for ENV-based usage)
    */
   async initialize() {
     try {
       const apiKey = process.env.ELEVENLABS_API_KEY;
 
       if (!apiKey) {
-        throw new Error('ELEVENLABS_API_KEY environment variable not set');
+        console.warn('⚠️  ELEVENLABS_API_KEY not set - will require api_keys.elevenlabs in requests');
+        return false;
       }
 
       this.client = new ElevenLabsClient({ apiKey });
 
-      console.log('✅ ElevenLabs TTS initialized successfully');
+      console.log('✅ ElevenLabs TTS initialized with ENV key');
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize ElevenLabs TTS:', error.message);
@@ -47,12 +71,12 @@ export class ElevenLabsTTSProvider {
    * @param {string} [params.voice] - Voice ID (from ElevenLabs voice library)
    * @param {number} [params.speed] - Speaking rate (0.7-1.2, clamped to ElevenLabs range)
    * @param {string} [params.filename] - Custom filename prefix (timestamp will be appended)
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Object>} Audio data and metadata
    */
-  async generateSpeech({ text, voice, speed, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async generateSpeech({ text, voice, speed, filename, apiKey }) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     const voiceId = voice || this.config.voice || 'EXAVITQu4vr4xnSDxMaL'; // Default: Bella
     const modelId = this.config.model || 'eleven_multilingual_v2';
@@ -70,7 +94,7 @@ export class ElevenLabsTTSProvider {
 
     try {
       // Generate audio
-      const audioStream = await this.client.textToSpeech.convert(voiceId, {
+      const audioStream = await client.textToSpeech.convert(voiceId, {
         text,
         model_id: modelId,
         voice_settings: voiceSettings,
@@ -127,15 +151,15 @@ export class ElevenLabsTTSProvider {
   /**
    * List available voices from ElevenLabs
    *
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Array>} List of available voices
    */
-  async listVoices() {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async listVoices(apiKey) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     try {
-      const response = await this.client.voices.getAll();
+      const response = await client.voices.getAll();
 
       return response.voices.map(voice => ({
         voice_id: voice.voice_id,

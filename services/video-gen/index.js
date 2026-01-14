@@ -75,6 +75,26 @@ function getProvider(name) {
   return provider;
 }
 
+/**
+ * Get the API key for a provider from request api_keys object
+ * Maps provider names to their API key names
+ */
+function getApiKeyForProvider(providerName, apiKeys) {
+  if (!apiKeys) return undefined;
+
+  const keyMap = {
+    'sora': 'openai',
+    'sora-pro': 'openai',
+    'runway': 'runway',
+    'veo': 'google',
+    'pika': 'fal',
+    'kling': 'kie'
+  };
+
+  const keyName = keyMap[providerName];
+  return keyName ? apiKeys[keyName] : undefined;
+}
+
 // ============================================================================
 // POST /generate - Submit a video generation job
 // ============================================================================
@@ -96,7 +116,8 @@ app.post('/generate', async (req, res) => {
       style,                    // Sora
       first_frame_image,        // Veo
       last_frame_image,         // Veo
-      reference_images          // Veo
+      reference_images,         // Veo
+      api_keys                  // Dynamic API keys (optional, falls back to ENV)
     } = req.body;
 
     if (!prompt) {
@@ -105,6 +126,9 @@ app.post('/generate', async (req, res) => {
 
     const selectedProvider = providerName || defaultProvider;
     const provider = getProvider(selectedProvider);
+
+    // Get API key for the selected provider (falls back to ENV in provider)
+    const apiKey = getApiKeyForProvider(selectedProvider, api_keys);
 
     console.log(`\n   [Video] Generating with ${selectedProvider}: "${prompt.substring(0, 50)}..."`);
 
@@ -123,7 +147,8 @@ app.post('/generate', async (req, res) => {
       style,
       first_frame_image,
       last_frame_image,
-      reference_images
+      reference_images,
+      apiKey  // Pass API key to provider (provider will fall back to ENV if not provided)
     });
 
     // Create our job entry
@@ -137,8 +162,8 @@ app.post('/generate', async (req, res) => {
       operation_name: providerResult.operation_name  // For Veo
     });
 
-    // Start background polling for this job
-    pollJobStatus(jobId, provider, providerResult.operation_name);
+    // Start background polling for this job (pass API key for status checks)
+    pollJobStatus(jobId, provider, providerResult.operation_name, apiKey);
 
     console.log(`   [Video] Job created: ${jobId} -> ${providerResult.provider_job_id}`);
 
@@ -267,6 +292,12 @@ app.get('/providers', (req, res) => {
 });
 
 function hasApiKey(providerName) {
+  const provider = providers[providerName];
+  if (provider && typeof provider.isConfigured === 'function') {
+    return provider.isConfigured();
+  }
+
+  // Fallback for providers without isConfigured method
   switch (providerName) {
     case 'sora':
     case 'sora-pro':
@@ -327,7 +358,18 @@ app.get('/schema', (req, res) => {
           duration: { type: 'number', description: 'Video duration in seconds' },
           resolution: { type: 'string', enum: ['720p', '1080p'], default: '1080p' },
           aspect_ratio: { type: 'string', enum: ['16:9', '9:16', '1:1'], default: '16:9' },
-          with_audio: { type: 'boolean', default: true }
+          with_audio: { type: 'boolean', default: true },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              openai: { type: 'string', description: 'For sora/sora-pro providers' },
+              runway: { type: 'string', description: 'For runway provider' },
+              google: { type: 'string', description: 'For veo provider' },
+              fal: { type: 'string', description: 'For pika provider' },
+              kie: { type: 'string', description: 'For kling provider' }
+            }
+          }
         },
         response: {
           job_id: 'string',
@@ -373,7 +415,7 @@ app.get('/schema', (req, res) => {
 // ============================================================================
 // Background polling for job status
 // ============================================================================
-async function pollJobStatus(jobId, provider, operationName = null) {
+async function pollJobStatus(jobId, provider, operationName = null, apiKey = null) {
   const pollInterval = config.poll_interval_ms || 5000;
   const maxAttempts = config.max_poll_attempts || 360;
 
@@ -396,7 +438,8 @@ async function pollJobStatus(jobId, provider, operationName = null) {
     }
 
     try {
-      const status = await provider.getStatus(job.provider_job_id, operationName);
+      // Pass API key to getStatus (provider will fall back to ENV if not provided)
+      const status = await provider.getStatus(job.provider_job_id, operationName, apiKey);
 
       if (status.status === 'completed') {
         jobTracker.setCompleted(jobId, {

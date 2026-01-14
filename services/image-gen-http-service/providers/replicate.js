@@ -9,29 +9,52 @@ const __dirname = path.dirname(__filename);
 /**
  * Replicate Image Generation Provider
  *
- * Supports Stable Diffusion models via Replicate API
- * Requires REPLICATE_API_TOKEN environment variable
+ * Supports dynamic API keys passed per-request, with ENV fallback.
+ * Pass apiKey in method params to use a specific key, otherwise
+ * falls back to REPLICATE_API_TOKEN environment variable.
  */
 export class ReplicateProvider {
   constructor(config) {
     this.config = config;
-    this.client = null;
+    this.client = null;  // Default client using ENV token
   }
 
   /**
-   * Initialize the Replicate client
+   * Get a Replicate client instance
+   * @param {string} [apiKey] - Optional API token (uses ENV if not provided)
+   * @returns {Replicate} Replicate client instance
+   */
+  getClient(apiKey) {
+    const token = apiKey || process.env.REPLICATE_API_TOKEN;
+
+    if (!token) {
+      throw new Error('No API key provided. Pass api_keys.replicate in request or set REPLICATE_API_TOKEN environment variable.');
+    }
+
+    // If using ENV token and we have a cached client, return it
+    if (!apiKey && this.client) {
+      return this.client;
+    }
+
+    // Create new client with the provided token
+    return new Replicate({ auth: token });
+  }
+
+  /**
+   * Initialize the default Replicate client (for ENV-based usage)
    */
   async initialize() {
     try {
       const apiToken = process.env.REPLICATE_API_TOKEN;
 
       if (!apiToken) {
-        throw new Error('REPLICATE_API_TOKEN environment variable not set');
+        console.warn('⚠️  REPLICATE_API_TOKEN not set - will require api_keys.replicate in requests');
+        return false;
       }
 
       this.client = new Replicate({ auth: apiToken });
 
-      console.log('✅ Replicate initialized successfully');
+      console.log('✅ Replicate initialized with ENV token');
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize Replicate:', error.message);
@@ -62,12 +85,12 @@ export class ReplicateProvider {
    * @param {number} [params.num_inference_steps] - Number of denoising steps (default: 30)
    * @param {number} [params.guidance_scale] - Prompt adherence (default: 7.5)
    * @param {string} [params.filename] - Custom filename prefix
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Object>} Image data and metadata
    */
-  async generateImage({ prompt, model, size, seed, num_inference_steps, guidance_scale, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async generateImage({ prompt, model, size, seed, num_inference_steps, guidance_scale, filename, apiKey }) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     // Parse size (e.g., "1024x1024" → width: 1024, height: 1024)
     const imageSize = size || '1024x1024';
@@ -86,7 +109,7 @@ export class ReplicateProvider {
     try {
       console.log(`🎨 Generating image with Replicate ${modelVersion}...`);
 
-      const output = await this.client.run(
+      const output = await client.run(
         modelVersion,
         {
           input: {
@@ -141,12 +164,12 @@ export class ReplicateProvider {
    * @param {number} [params.num_inference_steps] - Denoising steps (default: 25)
    * @param {number} [params.guidance_scale] - Prompt adherence (default: 8)
    * @param {string} [params.filename] - Custom filename prefix
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Object>} Edited image data and metadata
    */
-  async editImage({ image, prompt, negative_prompt, model, size, strength, seed, num_inference_steps, guidance_scale, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async editImage({ image, prompt, negative_prompt, model, size, strength, seed, num_inference_steps, guidance_scale, filename, apiKey }) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     // Parse size
     const imageSize = size || '1024x1024';
@@ -185,7 +208,7 @@ export class ReplicateProvider {
         runInput.negative_prompt = negative_prompt;
       }
 
-      const output = await this.client.run(
+      const output = await client.run(
         modelVersion,
         {
           input: runInput

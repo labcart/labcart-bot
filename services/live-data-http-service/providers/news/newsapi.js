@@ -1,7 +1,7 @@
 /**
  * NewsAPI Provider
  *
- * Official API for news headlines.
+ * Supports dynamic API keys passed per-request, with ENV fallback.
  * Free tier: 100 requests/day for development.
  *
  * Docs: https://newsapi.org/docs
@@ -21,19 +21,32 @@ export class NewsAPIProvider {
   }
 
   /**
-   * Check if provider is configured
+   * Check if provider is configured (has default API key)
    */
   isConfigured() {
     return !!this.apiKey;
   }
 
   /**
-   * Get top headlines
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
    */
-  async getHeadlines(options = {}) {
-    if (!this.apiKey) {
-      throw new Error('NewsAPI API key not configured');
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.newsapi in request or set NEWSAPI_API_KEY environment variable.');
     }
+    return key;
+  }
+
+  /**
+   * Get top headlines
+   * @param {Object} [options] - Query options
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
+   */
+  async getHeadlines(options = {}, apiKey) {
+    const key = this.getApiKey(apiKey);
 
     const {
       category = 'general',
@@ -61,7 +74,7 @@ export class NewsAPIProvider {
     }
 
     url.searchParams.set('pageSize', Math.min(limit, 20).toString());
-    url.searchParams.set('apiKey', this.apiKey);
+    url.searchParams.set('apiKey', key);
 
     console.log(`📰 [NewsAPI] Fetching headlines: category=${category}, country=${country}, query=${query || 'none'}`);
 
@@ -83,11 +96,12 @@ export class NewsAPIProvider {
 
   /**
    * Search everything (more comprehensive)
+   * @param {string} query - Search query
+   * @param {Object} [options] - Query options
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async searchNews(query, options = {}) {
-    if (!this.apiKey) {
-      throw new Error('NewsAPI API key not configured');
-    }
+  async searchNews(query, options = {}, apiKey) {
+    const key = this.getApiKey(apiKey);
 
     const { limit = 5, sortBy = 'publishedAt' } = options;
 
@@ -95,7 +109,7 @@ export class NewsAPIProvider {
     url.searchParams.set('q', query);
     url.searchParams.set('sortBy', sortBy);
     url.searchParams.set('pageSize', Math.min(limit, 20).toString());
-    url.searchParams.set('apiKey', this.apiKey);
+    url.searchParams.set('apiKey', key);
 
     console.log(`🔍 [NewsAPI] Searching: "${query}"`);
 

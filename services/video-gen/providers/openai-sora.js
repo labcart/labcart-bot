@@ -20,13 +20,36 @@ export class OpenAISoraProvider {
   }
 
   /**
-   * Make authenticated request to OpenAI API
+   * Check if provider is configured (has default API key)
    */
-  async request(method, endpoint, body = null) {
+  isConfigured() {
+    return !!this.apiKey;
+  }
+
+  /**
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
+   */
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.openai in request or set OPENAI_API_KEY environment variable.');
+    }
+    return key;
+  }
+
+  /**
+   * Make authenticated request to OpenAI API
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
+   */
+  async request(method, endpoint, body = null, apiKey) {
+    const key = this.getApiKey(apiKey);
+
     const options = {
       method,
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        'Authorization': `Bearer ${key}`,
         'Content-Type': 'application/json'
       }
     };
@@ -51,6 +74,8 @@ export class OpenAISoraProvider {
   /**
    * Submit a video generation job
    * Returns job info with provider_job_id for polling
+   * @param {Object} options - Job options
+   * @param {string} [options.apiKey] - Optional API key (falls back to ENV)
    */
   async createJob(options = {}) {
     const {
@@ -61,7 +86,8 @@ export class OpenAISoraProvider {
       resolution,
       aspect_ratio,
       style,
-      with_audio
+      with_audio,
+      apiKey
     } = options;
 
     if (!prompt) {
@@ -99,7 +125,7 @@ export class OpenAISoraProvider {
 
     console.log(`   [Sora] Creating video job: "${prompt.substring(0, 50)}..."`);
 
-    const response = await this.request('POST', '/videos', requestBody);
+    const response = await this.request('POST', '/videos', requestBody, apiKey);
 
     return {
       provider_job_id: response.id,
@@ -111,9 +137,12 @@ export class OpenAISoraProvider {
 
   /**
    * Check job status
+   * @param {string} providerJobId - Provider job ID
+   * @param {string} [operationName] - Operation name (unused for Sora)
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async getStatus(providerJobId) {
-    const response = await this.request('GET', `/videos/${providerJobId}`);
+  async getStatus(providerJobId, operationName, apiKey) {
+    const response = await this.request('GET', `/videos/${providerJobId}`, null, apiKey);
 
     const result = {
       provider_job_id: providerJobId,
@@ -136,9 +165,11 @@ export class OpenAISoraProvider {
 
   /**
    * Download the completed video content
+   * @param {string} providerJobId - Provider job ID
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async getContent(providerJobId) {
-    const response = await this.request('GET', `/videos/${providerJobId}/content`);
+  async getContent(providerJobId, apiKey) {
+    const response = await this.request('GET', `/videos/${providerJobId}/content`, null, apiKey);
     return {
       video_url: response.url,
       content_type: response.content_type || 'video/mp4'

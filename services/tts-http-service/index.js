@@ -210,6 +210,15 @@ app.get('/schema', (req, res) => {
             type: 'string',
             description: 'Custom filename prefix (optional). Timestamp will be automatically appended. Example: "welcome" becomes "welcome-1234567890.mp3"',
           },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys for providers. If not provided, falls back to server environment variables.',
+            properties: {
+              openai: { type: 'string', description: 'OpenAI API key (sk-...)' },
+              elevenlabs: { type: 'string', description: 'ElevenLabs API key' },
+              google: { type: 'object', description: 'Google Cloud service account credentials JSON' },
+            },
+          },
         },
         required: ['text'],
       },
@@ -229,6 +238,15 @@ app.get('/schema', (req, res) => {
             type: 'string',
             description: 'Language code filter (e.g., en-US). Only used for Google provider.',
           },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys for providers. If not provided, falls back to server environment variables.',
+            properties: {
+              openai: { type: 'string', description: 'OpenAI API key (sk-...)' },
+              elevenlabs: { type: 'string', description: 'ElevenLabs API key' },
+              google: { type: 'object', description: 'Google Cloud service account credentials JSON' },
+            },
+          },
         },
       },
     },
@@ -239,7 +257,7 @@ app.get('/schema', (req, res) => {
 app.post('/text_to_speech', async (req, res) => {
   const startTime = Date.now();  // Define before try so catch can access it
   try {
-    const { text, provider, voice, speed, include_base64 = false, filename, output_dir, r2_config } = req.body;
+    const { text, provider, voice, speed, include_base64 = false, filename, output_dir, r2_config, api_keys } = req.body;
 
     if (!text) {
       return res.status(400).json({ error: 'text parameter is required' });
@@ -270,16 +288,30 @@ app.post('/text_to_speech', async (req, res) => {
       ttsProvider.config.output_dir = output_dir;
     }
 
+    // Get the appropriate API key for the selected provider
+    // For Google, it's 'credentials' (JSON object), for others it's 'apiKey' (string)
+    const providerApiKey = api_keys?.[selectedProvider];
+
     // Use queue to prevent concurrent API calls
     // Add timeout wrapper to prevent requests from hanging indefinitely
     const overallTimeout = 60000; // 60 seconds max for entire request
     const requestPromise = requestQueue.add(async () => {
-      return await ttsProvider.generateSpeech({
+      // Pass API key/credentials to provider (each provider handles its own format)
+      const params = {
         text,
         voice,
         speed,
         filename,
-      });
+      };
+
+      // For Google, it's 'credentials', for others it's 'apiKey'
+      if (selectedProvider === 'google') {
+        params.credentials = providerApiKey;
+      } else {
+        params.apiKey = providerApiKey;
+      }
+
+      return await ttsProvider.generateSpeech(params);
     });
 
     const timeoutPromise = new Promise((_, reject) =>
@@ -359,7 +391,7 @@ app.post('/text_to_speech', async (req, res) => {
 // Execute list_tts_voices tool
 app.post('/list_tts_voices', async (req, res) => {
   try {
-    const { provider, language_code } = req.body || {};
+    const { provider, language_code, api_keys } = req.body || {};
 
     // Select provider
     const selectedProvider = provider || defaultProvider;
@@ -373,9 +405,16 @@ app.post('/list_tts_voices', async (req, res) => {
 
     console.log(`📋 [HTTP] Listing available voices for ${selectedProvider}...`);
 
-    const voices = selectedProvider === 'google'
-      ? await ttsProvider.listVoices(language_code || 'en-US')
-      : await ttsProvider.listVoices();
+    // Get the appropriate API key for the selected provider
+    const providerApiKey = api_keys?.[selectedProvider];
+
+    // Call listVoices with appropriate params
+    let voices;
+    if (selectedProvider === 'google') {
+      voices = await ttsProvider.listVoices(language_code || 'en-US', providerApiKey);
+    } else {
+      voices = await ttsProvider.listVoices(providerApiKey);
+    }
 
     res.json(voices);
 

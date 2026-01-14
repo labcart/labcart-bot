@@ -17,12 +17,34 @@ export class KlingKieProvider {
     };
   }
 
+  /**
+   * Check if provider is configured (has default API key)
+   */
+  isConfigured() {
+    return !!this.apiKey;
+  }
+
+  /**
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
+   */
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.kie in request or set KIE_API_KEY environment variable.');
+    }
+    return key;
+  }
+
   get name() {
     return 'kling';
   }
 
   /**
    * Submit a video generation job
+   * @param {Object} options - Job options
+   * @param {string} [options.apiKey] - Optional API key (falls back to ENV)
    */
   async createJob(options = {}) {
     const {
@@ -31,12 +53,15 @@ export class KlingKieProvider {
       model,
       duration,
       with_audio,
-      aspect_ratio
+      aspect_ratio,
+      apiKey
     } = options;
 
     if (!prompt) {
       throw new Error('prompt is required');
     }
+
+    const key = this.getApiKey(apiKey);
 
     const requestBody = {
       model: model || this.config.model,
@@ -58,7 +83,7 @@ export class KlingKieProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
+        'Authorization': `Bearer ${key}`
       },
       body: JSON.stringify(requestBody)
     });
@@ -80,13 +105,18 @@ export class KlingKieProvider {
 
   /**
    * Check job status
+   * @param {string} providerJobId - Provider job ID
+   * @param {string} [operationName] - Operation name (unused for Kling)
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async getStatus(providerJobId) {
+  async getStatus(providerJobId, operationName, apiKey) {
+    const key = this.getApiKey(apiKey);
+
     const response = await fetch(
       `${this.baseUrl}/video/status/${providerJobId}`,
       {
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`
+          'Authorization': `Bearer ${key}`
         }
       }
     );

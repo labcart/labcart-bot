@@ -19,12 +19,34 @@ export class GoogleVeoProvider {
     };
   }
 
+  /**
+   * Check if provider is configured (has default API key)
+   */
+  isConfigured() {
+    return !!this.apiKey;
+  }
+
+  /**
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
+   */
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.google in request or set GOOGLE_API_KEY environment variable.');
+    }
+    return key;
+  }
+
   get name() {
     return 'google-veo';
   }
 
   /**
    * Submit a video generation job (long-running operation)
+   * @param {Object} options - Job options
+   * @param {string} [options.apiKey] - Optional API key (falls back to ENV)
    */
   async createJob(options = {}) {
     const {
@@ -37,12 +59,15 @@ export class GoogleVeoProvider {
       model,
       duration_seconds,
       resolution,
-      aspect_ratio
+      aspect_ratio,
+      apiKey
     } = options;
 
     if (!prompt) {
       throw new Error('prompt is required');
     }
+
+    const key = this.getApiKey(apiKey);
 
     const modelName = model || this.config.model;
     const requestBody = {
@@ -79,7 +104,7 @@ export class GoogleVeoProvider {
     console.log(`   [Veo] Creating video job: "${prompt.substring(0, 50)}..."`);
 
     const response = await fetch(
-      `${this.baseUrl}/models/${modelName}:predictLongRunning?key=${this.apiKey}`,
+      `${this.baseUrl}/models/${modelName}:predictLongRunning?key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -109,13 +134,18 @@ export class GoogleVeoProvider {
 
   /**
    * Check operation status
+   * @param {string} providerJobId - Provider job ID
+   * @param {string} [operationName] - Full operation name
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
    */
-  async getStatus(providerJobId, operationName) {
+  async getStatus(providerJobId, operationName, apiKey) {
+    const key = this.getApiKey(apiKey);
+
     // Use full operation name if available, otherwise construct it
     const opName = operationName || `operations/${providerJobId}`;
 
     const response = await fetch(
-      `${this.baseUrl}/${opName}?key=${this.apiKey}`
+      `${this.baseUrl}/${opName}?key=${key}`
     );
 
     if (!response.ok) {

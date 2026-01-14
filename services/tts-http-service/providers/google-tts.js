@@ -9,26 +9,57 @@ const __dirname = path.dirname(__filename);
 /**
  * Google Cloud Text-to-Speech Provider
  *
- * Requires GOOGLE_APPLICATION_CREDENTIALS environment variable
- * pointing to a service account JSON file.
+ * Supports dynamic credentials passed per-request, with ENV fallback.
+ * Pass credentials (JSON object) in method params, otherwise
+ * falls back to GOOGLE_APPLICATION_CREDENTIALS environment variable.
  */
 export class GoogleTTSProvider {
   constructor(config) {
     this.config = config;
-    this.client = null;
+    this.client = null;  // Default client using ENV credentials
   }
 
   /**
-   * Initialize the Google Cloud TTS client
+   * Get a Google Cloud TTS client instance
+   * @param {Object} [credentials] - Optional credentials JSON object (uses ENV if not provided)
+   * @returns {textToSpeech.TextToSpeechClient} Google Cloud TTS client instance
+   */
+  getClient(credentials) {
+    // If credentials provided, create client with them
+    if (credentials) {
+      return new textToSpeech.TextToSpeechClient({ credentials });
+    }
+
+    // If we have a cached client from ENV, return it
+    if (this.client) {
+      return this.client;
+    }
+
+    // Check if ENV credentials are configured
+    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      throw new Error('No credentials provided. Pass api_keys.google (credentials JSON) in request or set GOOGLE_APPLICATION_CREDENTIALS environment variable.');
+    }
+
+    // Create client using ENV credentials (will be cached on first successful init)
+    return new textToSpeech.TextToSpeechClient();
+  }
+
+  /**
+   * Initialize the default Google Cloud TTS client (for ENV-based usage)
    */
   async initialize() {
     try {
+      if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        console.warn('⚠️  GOOGLE_APPLICATION_CREDENTIALS not set - will require api_keys.google (credentials JSON) in requests');
+        return false;
+      }
+
       this.client = new textToSpeech.TextToSpeechClient();
 
       // Test credentials by making a minimal API call
       await this.client.listVoices({});
 
-      console.log('✅ Google Cloud TTS initialized successfully');
+      console.log('✅ Google Cloud TTS initialized with ENV credentials');
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize Google Cloud TTS:', error.message);
@@ -44,12 +75,12 @@ export class GoogleTTSProvider {
    * @param {string} [params.voice] - Voice name (overrides config)
    * @param {number} [params.speed] - Speaking rate (0.25-4.0)
    * @param {string} [params.filename] - Custom filename prefix (timestamp will be appended)
+   * @param {Object} [params.credentials] - Optional Google credentials JSON (falls back to ENV)
    * @returns {Promise<Object>} Audio data and metadata
    */
-  async generateSpeech({ text, voice, speed, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async generateSpeech({ text, voice, speed, filename, credentials }) {
+    // Get client with provided credentials or ENV fallback
+    const client = this.getClient(credentials);
 
     const request = {
       input: { text },
@@ -65,7 +96,7 @@ export class GoogleTTSProvider {
     };
 
     try {
-      const [response] = await this.client.synthesizeSpeech(request);
+      const [response] = await client.synthesizeSpeech(request);
 
       // Generate filename with optional custom prefix
       const timestamp = Date.now();
@@ -107,14 +138,15 @@ export class GoogleTTSProvider {
 
   /**
    * List available voices
+   * @param {string} [languageCode] - Language code filter (default: en-US)
+   * @param {Object} [credentials] - Optional Google credentials JSON (falls back to ENV)
    */
-  async listVoices(languageCode = 'en-US') {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async listVoices(languageCode = 'en-US', credentials) {
+    // Get client with provided credentials or ENV fallback
+    const client = this.getClient(credentials);
 
     try {
-      const [response] = await this.client.listVoices({ languageCode });
+      const [response] = await client.listVoices({ languageCode });
       return response.voices.map(voice => ({
         name: voice.name,
         gender: voice.ssmlGender,

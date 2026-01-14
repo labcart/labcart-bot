@@ -15,20 +15,41 @@ export class TapjotProvider {
     this.apiKey = config.apiKey || process.env.TAPJOT_API_KEY;
   }
 
+  /**
+   * Check if provider is configured (has default API key)
+   */
   isConfigured() {
     return !!this.apiKey;
   }
 
-  async request(method, endpoint, body = null) {
-    if (!this.isConfigured()) {
-      throw new Error('Tapjot API key not configured. Set TAPJOT_API_KEY in .env');
+  /**
+   * Get the API key to use (request key or instance key)
+   * @param {string} [apiKey] - Optional API key from request
+   * @returns {string} The API key to use
+   */
+  getApiKey(apiKey) {
+    const key = apiKey || this.apiKey;
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.tapjot in request or set TAPJOT_API_KEY environment variable.');
     }
+    return key;
+  }
+
+  /**
+   * Make a request to the Tapjot API
+   * @param {string} method - HTTP method
+   * @param {string} endpoint - API endpoint
+   * @param {Object} [body] - Request body
+   * @param {string} [apiKey] - Optional API key (falls back to ENV)
+   */
+  async request(method, endpoint, body = null, apiKey) {
+    const key = this.getApiKey(apiKey);
 
     const url = `${BASE_URL}${endpoint}`;
     const options = {
       method,
       headers: {
-        'x-api-key': this.apiKey,
+        'x-api-key': key,
         'Content-Type': 'application/json',
       },
     };
@@ -53,7 +74,7 @@ export class TapjotProvider {
   // SNIPPETS (Notes)
   // ============================================================================
 
-  async listSnippets({ project_id, view_id, tag, limit = 50, offset = 0 } = {}) {
+  async listSnippets({ project_id, view_id, tag, limit = 50, offset = 0, apiKey } = {}) {
     const params = new URLSearchParams();
     if (project_id) params.set('project_id', project_id);
     if (view_id) params.set('view_id', view_id);
@@ -62,14 +83,14 @@ export class TapjotProvider {
     if (offset) params.set('offset', offset.toString());
 
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request('GET', `/snippets${query}`);
+    return this.request('GET', `/snippets${query}`, null, apiKey);
   }
 
-  async getSnippet(id) {
-    return this.request('GET', `/snippets/${id}`);
+  async getSnippet(id, apiKey) {
+    return this.request('GET', `/snippets/${id}`, null, apiKey);
   }
 
-  async createSnippet({ content, project_id, title, tags, view_id, size }) {
+  async createSnippet({ content, project_id, title, tags, view_id, size, apiKey }) {
     if (!content) throw new Error('content is required');
     if (!project_id) throw new Error('project_id is required');
 
@@ -80,10 +101,10 @@ export class TapjotProvider {
       tags: tags || [],
       view_id: view_id || '',
       size: size || 'medium',
-    });
+    }, apiKey);
   }
 
-  async updateSnippet(id, { content, title, tags, view_id, size }) {
+  async updateSnippet(id, { content, title, tags, view_id, size, apiKey }) {
     const updates = {};
     if (content !== undefined) updates.content = content;
     if (title !== undefined) updates.title = title;
@@ -91,62 +112,62 @@ export class TapjotProvider {
     if (view_id !== undefined) updates.view_id = view_id;
     if (size !== undefined) updates.size = size;
 
-    return this.request('PATCH', `/snippets/${id}`, updates);
+    return this.request('PATCH', `/snippets/${id}`, updates, apiKey);
   }
 
-  async deleteSnippet(id) {
-    return this.request('DELETE', `/snippets/${id}`);
+  async deleteSnippet(id, apiKey) {
+    return this.request('DELETE', `/snippets/${id}`, null, apiKey);
   }
 
   // ============================================================================
   // PROJECTS
   // ============================================================================
 
-  async listProjects() {
-    return this.request('GET', '/projects');
+  async listProjects(apiKey) {
+    return this.request('GET', '/projects', null, apiKey);
   }
 
-  async getProject(id) {
-    return this.request('GET', `/projects/${id}`);
+  async getProject(id, apiKey) {
+    return this.request('GET', `/projects/${id}`, null, apiKey);
   }
 
-  async createProject({ name, description, visibility }) {
+  async createProject({ name, description, visibility, apiKey }) {
     if (!name) throw new Error('name is required');
 
     return this.request('POST', '/projects', {
       name,
       description: description || '',
       visibility: visibility || 'private',
-    });
+    }, apiKey);
   }
 
-  async updateProject(id, { name, description, visibility }) {
+  async updateProject(id, { name, description, visibility, apiKey }) {
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (description !== undefined) updates.description = description;
     if (visibility !== undefined) updates.visibility = visibility;
 
-    return this.request('PATCH', `/projects/${id}`, updates);
+    return this.request('PATCH', `/projects/${id}`, updates, apiKey);
   }
 
-  async deleteProject(id) {
-    return this.request('DELETE', `/projects/${id}`);
+  async deleteProject(id, apiKey) {
+    return this.request('DELETE', `/projects/${id}`, null, apiKey);
   }
 
   // ============================================================================
   // VIEWS (Tabs within projects)
   // ============================================================================
 
-  async listViews({ project_id } = {}) {
+  async listViews({ project_id, apiKey } = {}) {
     const params = project_id ? `?project_id=${project_id}` : '';
-    return this.request('GET', `/views${params}`);
+    return this.request('GET', `/views${params}`, null, apiKey);
   }
 
-  async getView(id) {
-    return this.request('GET', `/views/${id}`);
+  async getView(id, apiKey) {
+    return this.request('GET', `/views/${id}`, null, apiKey);
   }
 
-  async createView({ name, project_id, display_order }) {
+  async createView({ name, project_id, display_order, apiKey }) {
     if (!name) throw new Error('name is required');
     if (!project_id) throw new Error('project_id is required');
 
@@ -154,19 +175,19 @@ export class TapjotProvider {
       name,
       project_id,
       display_order: display_order || Date.now(),
-    });
+    }, apiKey);
   }
 
-  async updateView(id, { name, display_order }) {
+  async updateView(id, { name, display_order, apiKey }) {
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (display_order !== undefined) updates.display_order = display_order;
 
-    return this.request('PATCH', `/views/${id}`, updates);
+    return this.request('PATCH', `/views/${id}`, updates, apiKey);
   }
 
-  async deleteView(id) {
-    return this.request('DELETE', `/views/${id}`);
+  async deleteView(id, apiKey) {
+    return this.request('DELETE', `/views/${id}`, null, apiKey);
   }
 }
 

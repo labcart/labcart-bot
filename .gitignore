@@ -15,3 +15,6 @@ services/*/.env
 # User-specific configs (use .example versions as templates)
 bots.json
 telegram-session.json
+
+# API keys and secrets
+service-config/api-keys.json

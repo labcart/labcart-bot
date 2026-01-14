@@ -9,28 +9,52 @@ const __dirname = path.dirname(__filename);
 /**
  * OpenAI Text-to-Speech Provider
  *
- * Requires OPENAI_API_KEY environment variable
+ * Supports dynamic API keys passed per-request, with ENV fallback.
+ * Pass apiKey in method params to use a specific key, otherwise
+ * falls back to OPENAI_API_KEY environment variable.
  */
 export class OpenAITTSProvider {
   constructor(config) {
     this.config = config;
-    this.client = null;
+    this.client = null;  // Default client using ENV key
   }
 
   /**
-   * Initialize the OpenAI client
+   * Get an OpenAI client instance
+   * @param {string} [apiKey] - Optional API key (uses ENV if not provided)
+   * @returns {OpenAI} OpenAI client instance
+   */
+  getClient(apiKey) {
+    const key = apiKey || process.env.OPENAI_API_KEY;
+
+    if (!key) {
+      throw new Error('No API key provided. Pass api_keys.openai in request or set OPENAI_API_KEY environment variable.');
+    }
+
+    // If using ENV key and we have a cached client, return it
+    if (!apiKey && this.client) {
+      return this.client;
+    }
+
+    // Create new client with the provided key
+    return new OpenAI({ apiKey: key });
+  }
+
+  /**
+   * Initialize the default OpenAI client (for ENV-based usage)
    */
   async initialize() {
     try {
       const apiKey = process.env.OPENAI_API_KEY;
 
       if (!apiKey) {
-        throw new Error('OPENAI_API_KEY environment variable not set');
+        console.warn('⚠️  OPENAI_API_KEY not set - will require api_keys.openai in requests');
+        return false;
       }
 
       this.client = new OpenAI({ apiKey });
 
-      console.log('✅ OpenAI TTS initialized successfully');
+      console.log('✅ OpenAI TTS initialized with ENV key');
       return true;
     } catch (error) {
       console.error('❌ Failed to initialize OpenAI TTS:', error.message);
@@ -46,12 +70,12 @@ export class OpenAITTSProvider {
    * @param {string} [params.voice] - Voice name (alloy, echo, fable, onyx, nova, shimmer)
    * @param {number} [params.speed] - Speaking rate (0.25-4.0)
    * @param {string} [params.filename] - Custom filename prefix (timestamp will be appended)
+   * @param {string} [params.apiKey] - Optional API key (falls back to ENV)
    * @returns {Promise<Object>} Audio data and metadata
    */
-  async generateSpeech({ text, voice, speed, filename }) {
-    if (!this.client) {
-      await this.initialize();
-    }
+  async generateSpeech({ text, voice, speed, filename, apiKey }) {
+    // Get client with provided key or ENV fallback
+    const client = this.getClient(apiKey);
 
     const model = this.config.model || 'tts-1';
     const voiceName = voice || this.config.voice || 'nova';
@@ -60,7 +84,7 @@ export class OpenAITTSProvider {
     try {
       // Add timeout to prevent hanging on slow/unresponsive API calls
       const timeout = 30000; // 30 seconds
-      const apiCall = this.client.audio.speech.create({
+      const apiCall = client.audio.speech.create({
         model,
         voice: voiceName,
         input: text,

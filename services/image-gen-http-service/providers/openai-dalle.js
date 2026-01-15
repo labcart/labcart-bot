@@ -49,7 +49,7 @@ export class OpenAIDALLEProvider {
       const apiKey = process.env.OPENAI_API_KEY;
 
       if (!apiKey) {
-        console.warn('⚠️  OPENAI_API_KEY not set - will require api_keys.openai in requests');
+        console.log('ℹ️  No ENV key - using api_keys.openai from requests');
         return false;
       }
 

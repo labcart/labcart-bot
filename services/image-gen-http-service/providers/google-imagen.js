@@ -53,7 +53,7 @@ export class GoogleImagenProvider {
       const apiKey = process.env.GOOGLE_AI_API_KEY;
 
       if (!apiKey) {
-        console.warn('⚠️  GOOGLE_AI_API_KEY not set - will require api_keys.google_ai in requests');
+        console.log('ℹ️  No ENV key - using api_keys.google from requests');
         return false;
       }
 

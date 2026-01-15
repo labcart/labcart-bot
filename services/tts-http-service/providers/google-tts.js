@@ -50,7 +50,7 @@ export class GoogleTTSProvider {
   async initialize() {
     try {
       if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        console.warn('⚠️  GOOGLE_APPLICATION_CREDENTIALS not set - will require api_keys.google (credentials JSON) in requests');
+        console.log('ℹ️  No ENV key - using api_keys.google from requests');
         return false;
       }
 

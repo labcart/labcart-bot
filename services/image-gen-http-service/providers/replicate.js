@@ -48,7 +48,7 @@ export class ReplicateProvider {
       const apiToken = process.env.REPLICATE_API_TOKEN;
 
       if (!apiToken) {
-        console.warn('⚠️  REPLICATE_API_TOKEN not set - will require api_keys.replicate in requests');
+        console.log('ℹ️  No ENV key - using api_keys.replicate from requests');
         return false;
       }
 

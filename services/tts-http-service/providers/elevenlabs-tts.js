@@ -49,7 +49,7 @@ export class ElevenLabsTTSProvider {
       const apiKey = process.env.ELEVENLABS_API_KEY;
 
       if (!apiKey) {
-        console.warn('⚠️  ELEVENLABS_API_KEY not set - will require api_keys.elevenlabs in requests');
+        console.log('ℹ️  No ENV key - using api_keys.elevenlabs from requests');
         return false;
       }
 

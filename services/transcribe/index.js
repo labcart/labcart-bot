@@ -127,6 +127,13 @@ app.get('/schema', (req, res) => {
           timestamps: {
             type: 'boolean',
             description: 'Include word-level timestamps (forces verbose_json format)',
+          },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              openai: { type: 'string', description: 'OpenAI API key (sk-...)' }
+            }
           }
         },
         required: ['file_path'],
@@ -150,6 +157,13 @@ app.get('/schema', (req, res) => {
             type: 'string',
             enum: ['json', 'text', 'srt', 'vtt'],
             description: 'Output format',
+          },
+          api_keys: {
+            type: 'object',
+            description: 'Optional API keys. Falls back to server ENV if not provided.',
+            properties: {
+              openai: { type: 'string', description: 'OpenAI API key (sk-...)' }
+            }
           }
         },
         required: ['file_path'],
@@ -293,8 +307,12 @@ async function splitAudioIntoChunks(inputPath, chunkDurationSecs = 600) {
 
 /**
  * Process large file: extract audio, split if needed, transcribe all parts
+ * @param {string} filePath - Path to the file
+ * @param {Object} provider - The transcription provider
+ * @param {Object} options - Transcription options
+ * @param {string} [apiKey] - Optional API key
  */
-async function processLargeFile(filePath, provider, options = {}) {
+async function processLargeFile(filePath, provider, options = {}, apiKey = null) {
   const filesToCleanup = [];
 
   try {
@@ -319,7 +337,7 @@ async function processLargeFile(filePath, provider, options = {}) {
     // If under 25MB, transcribe directly
     if (audioSizeMB <= 24) {
       console.log(`   Audio is ${audioSizeMB.toFixed(2)}MB - transcribing directly`);
-      return await provider.transcribe({ file_path: audioPath, ...options });
+      return await provider.transcribe({ file_path: audioPath, ...options, apiKey });
     }
 
     // Split into ~10 minute chunks (should be under 25MB each at 64kbps)
@@ -332,7 +350,7 @@ async function processLargeFile(filePath, provider, options = {}) {
 
     for (let i = 0; i < chunks.length; i++) {
       console.log(`   Transcribing chunk ${i + 1}/${chunks.length}...`);
-      const result = await provider.transcribe({ file_path: chunks[i], ...options });
+      const result = await provider.transcribe({ file_path: chunks[i], ...options, apiKey });
       transcriptions.push(result.text);
       if (result.duration_seconds) {
         totalDuration += result.duration_seconds;
@@ -395,7 +413,7 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file provided. Upload a file or provide file_path.' });
     }
 
-    const { language, prompt, response_format, timestamps } = req.body;
+    const { language, prompt, response_format, timestamps, api_keys } = req.body;
 
     console.log(`   [HTTP] Transcribing: ${path.basename(filePath)}`);
 
@@ -414,7 +432,7 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
           prompt,
           response_format,
           timestamps: timestamps === true || timestamps === 'true'
-        });
+        }, api_keys?.openai);
       });
     } else {
       // Small file - transcribe directly
@@ -424,7 +442,8 @@ app.post('/transcribe', upload.single('file'), async (req, res) => {
           language,
           prompt,
           response_format,
-          timestamps: timestamps === true || timestamps === 'true'
+          timestamps: timestamps === true || timestamps === 'true',
+          apiKey: api_keys?.openai
         });
       });
     }
@@ -489,7 +508,7 @@ app.post('/translate', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file provided. Upload a file or provide file_path.' });
     }
 
-    const { prompt, response_format } = req.body;
+    const { prompt, response_format, api_keys } = req.body;
 
     console.log(`   [HTTP] Translating to English: ${path.basename(filePath)}`);
 
@@ -497,7 +516,8 @@ app.post('/translate', upload.single('file'), async (req, res) => {
       return await provider.translate({
         file_path: filePath,
         prompt,
-        response_format
+        response_format,
+        apiKey: api_keys?.openai
       });
     });
 

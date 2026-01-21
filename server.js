@@ -910,7 +910,9 @@ io.on('connection', (socket) => {
       const newCliSessionId = result.metadata?.sessionInfo?.sessionId;
 
       // Link CLI session ID to our session (for future --resume)
-      if (newCliSessionId && isNewSession) {
+      // Use !cliSessionId instead of isNewSession - we need to link whenever
+      // we get a CLI session from Claude and don't already have one linked
+      if (newCliSessionId && !cliSessionId) {
         await messageStore.linkCliSession(ourSessionId, newCliSessionId);
         cliSessionId = newCliSessionId;
       }
@@ -1563,7 +1565,9 @@ async function connectToProxy() {
               const newCliSessionId = result.metadata?.sessionInfo?.sessionId;
 
               // Link CLI session ID to our session (for future --resume)
-              if (newCliSessionId && isNewSession) {
+              // Use !cliSessionId instead of isNewSession - we need to link whenever
+              // we get a CLI session from Claude and don't already have one linked
+              if (newCliSessionId && !cliSessionId) {
                 await messageStore.linkCliSession(ourSessionId, newCliSessionId);
                 cliSessionId = newCliSessionId;
               }

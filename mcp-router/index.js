@@ -439,6 +439,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // Build request body with R2 config for media generation tools
     const requestBody = { ...args };
 
+    // For image tools, always request base64 so we can return native MCP image blocks
+    if (name === 'generate_image' || name === 'edit_image') {
+      requestBody.include_base64 = true;
+    }
+
     // For TTS and image tools, pass R2 config so services upload directly
     if (name === 'text_to_speech' || name === 'generate_image' || name === 'edit_image') {
       requestBody.r2_config = {
@@ -474,6 +479,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const result = await response.json();
 
     console.log(`   ✓ Success (${JSON.stringify(result).length} bytes)`);
+
+    // For image tools, return native MCP image content block so the LLM sees the image
+    if ((name === 'generate_image' || name === 'edit_image') && result.image_base64) {
+      const imageBase64 = result.image_base64;
+      const mimeType = `image/${(result.format || 'png').toLowerCase()}`;
+      const metadata = { ...result };
+      delete metadata.image_base64;
+
+      console.log(`   🖼️  Returning native image block (${mimeType}, ${Math.round(imageBase64.length / 1024)}KB)`);
+
+      return {
+        content: [
+          {
+            type: 'image',
+            data: imageBase64,
+            mimeType,
+          },
+          {
+            type: 'text',
+            text: JSON.stringify(metadata, null, 2),
+          },
+        ],
+      };
+    }
 
     // Return result in MCP format
     return {

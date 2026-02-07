@@ -22,6 +22,40 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { readFileSync } from 'fs';
+
+// Self-contained API key loading — no external dependencies
+// API_KEYS_PATH env var points to the project's api-keys.json
+const API_KEYS_PATH = process.env.API_KEYS_PATH;
+let _keys = null;
+
+function loadKeys() {
+  if (!_keys) {
+    if (!API_KEYS_PATH) {
+      _keys = {};
+      return _keys;
+    }
+    try {
+      _keys = JSON.parse(readFileSync(API_KEYS_PATH, 'utf-8'));
+    } catch (e) {
+      console.error(`⚠️  Failed to load API keys from ${API_KEYS_PATH}: ${e.message}`);
+      _keys = {};
+    }
+  }
+  return _keys;
+}
+
+function getKeysForService(service) {
+  const allKeys = loadKeys();
+  const prefix = service + '_';
+  const result = {};
+  for (const [key, value] of Object.entries(allKeys)) {
+    if (key.startsWith(prefix)) {
+      result[key.slice(prefix.length)] = value;
+    }
+  }
+  return result;
+}
 
 // R2 configuration from environment (passed from claude-client.js)
 const R2_UPLOAD_URL = process.env.R2_UPLOAD_URL || 'http://localhost:8080/assets/upload';
@@ -52,7 +86,6 @@ const BUILTIN_TOOLS = {
 };
 
 // HTTP Service endpoints
-// Build services list based on DISABLE_IMAGE_TOOLS env var
 const IMAGE_TOOLS = {
   'generate_image': {
     url: 'http://localhost:3002/generate_image',
@@ -122,6 +155,18 @@ const BASE_SERVICES = {
     url: 'http://localhost:3004/get_live_scores',
     schemaUrl: 'http://localhost:3004/schema'
   },
+  'get_injuries': {
+    url: 'http://localhost:3004/get_injuries',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'get_standings': {
+    url: 'http://localhost:3004/get_standings',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'get_sports_news': {
+    url: 'http://localhost:3004/get_sports_news',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
   'get_stock_quote': {
     url: 'http://localhost:3004/get_stock_quote',
     schemaUrl: 'http://localhost:3004/schema'
@@ -129,16 +174,64 @@ const BASE_SERVICES = {
   'get_news_headlines': {
     url: 'http://localhost:3004/get_news_headlines',
     schemaUrl: 'http://localhost:3004/schema'
+  },
+  'get_prediction_markets': {
+    url: 'http://localhost:3004/get_prediction_markets',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  // Tapjot - Snippets
+  'tapjot_list_snippets': {
+    url: 'http://localhost:3004/tapjot_list_snippets',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_create_snippet': {
+    url: 'http://localhost:3004/tapjot_create_snippet',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_update_snippet': {
+    url: 'http://localhost:3004/tapjot_update_snippet',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_delete_snippet': {
+    url: 'http://localhost:3004/tapjot_delete_snippet',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  // Tapjot - Projects
+  'tapjot_list_projects': {
+    url: 'http://localhost:3004/tapjot_list_projects',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_create_project': {
+    url: 'http://localhost:3004/tapjot_create_project',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_update_project': {
+    url: 'http://localhost:3004/tapjot_update_project',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_delete_project': {
+    url: 'http://localhost:3004/tapjot_delete_project',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  // Tapjot - Views
+  'tapjot_list_views': {
+    url: 'http://localhost:3004/tapjot_list_views',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_create_view': {
+    url: 'http://localhost:3004/tapjot_create_view',
+    schemaUrl: 'http://localhost:3004/schema'
+  },
+  'tapjot_delete_view': {
+    url: 'http://localhost:3004/tapjot_delete_view',
+    schemaUrl: 'http://localhost:3004/schema'
   }
 };
 
-// Conditionally include image tools based on environment variable
-const HTTP_SERVICES = process.env.DISABLE_IMAGE_TOOLS === 'true'
-  ? BASE_SERVICES
-  : { ...BASE_SERVICES, ...IMAGE_TOOLS };
+// All tools always available — LLM decides when to call image tools based on system prompt
+const HTTP_SERVICES = { ...BASE_SERVICES, ...IMAGE_TOOLS };
 
-const toolsMode = process.env.DISABLE_IMAGE_TOOLS === 'true' ? 'NO IMAGE TOOLS' : 'ALL TOOLS';
-console.log(`🔀 MCP Router starting (${toolsMode})...`);
+console.log(`🔀 MCP Router starting...`);
 console.log(`   Routing to ${Object.keys(HTTP_SERVICES).length} HTTP services`);
 
 // Create MCP server
@@ -354,6 +447,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         workflow_id: CURRENT_WORKFLOW_ID
       };
       console.log(`   ☁️  R2 config: user=${CURRENT_USER_ID}, workflow=${CURRENT_WORKFLOW_ID}`);
+    }
+
+    // Add api_keys based on which service the tool belongs to
+    if (name === 'text_to_speech' || name === 'list_tts_voices') {
+      requestBody.api_keys = getKeysForService('tts');
+    } else if (name === 'generate_image' || name === 'edit_image' || name === 'list_image_models') {
+      requestBody.api_keys = getKeysForService('image_gen');
+    } else if (name.startsWith('tapjot_') || name === 'get_stock_quote' || name === 'get_news_headlines') {
+      requestBody.api_keys = getKeysForService('live_data');
     }
 
     const response = await fetch(service.url, {
